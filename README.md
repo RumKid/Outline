@@ -1,35 +1,30 @@
-# Outline 🔳
+# Outline
 
-A beautiful, minimalist, local-first personal productivity dashboard. Designed for high focus, deep tracking, and absolute data privacy.
+A minimal, local-first productivity dashboard. It has a high-contrast dark theme, daily focus tracking, and keeps your data completely offline.
 
-Live URL: **[rumkid.github.io/Outline](https://rumkid.github.io/Outline/)**
+This project was fully **vibe coded** with an AI assistant.
 
----
-
-## Key Features
-
-- **🔳 Minimal Monochromatic Design:** High-contrast grayscale aesthetic using typography tailored for legibility (Outfit, Plus Jakarta Sans) and tabular data tracking (JetBrains Mono).
-- **🔒 Local-First Privacy:** Saves your tracking metrics as a raw JSON file directly in a local directory of your choice on your system (utilizing the File System Access API). Your data never touches the cloud.
-- **📈 Weekly Performance Review:** Automatically aggregates statistics for the current week and compares them against the previous week (Daily Score, Habit completion rate, Study duration, Sleep, and Hydration) with visual trend indicators (`▲` / `▼`).
-- **🎯 Daily Intention:** Set a single, primary objective every morning to maintain distraction-free alignment.
-- **⏱ Study Timer:** A focus stopwatch to record your active study or deep work blocks.
-- **💧 Hydration & 🌙 Sleep Logs:** Easy logging interfaces for daily water intake and sleep durations.
-- **🔥 Habits & ☑️ Tasks:** Interactive widgets to checklist daily tasks and streak habits.
+Live demo: [rumkid.github.io/Outline](https://rumkid.github.io/Outline/)
 
 ---
 
-## Technical Details
+## How it works
 
-- **Vanilla Stack:** Built with pure HTML, Javascript, and standard CSS rules (no heavy node packages or builds).
-- **ChartJS:** Clean monochrome data visualization.
-- **No Tracking/Cookies:** Zero cookies, telemetry, or server-side sync trackers.
+Instead of syncing to a database or uploading your logs to the cloud, Outline reads and writes your data directly on your computer's local drive as a single JSON file (`outline-data.json`). It uses the browser's native File System Access API to do this.
 
----
+None of your tracking data is uploaded or tracked in this Git repository.
 
-## Setup & Running
+## Features
 
-1. Simply clone the repository or open the live website at **[rumkid.github.io/Outline](https://rumkid.github.io/Outline/)**.
-2. Click **Select Data Folder** and choose a folder on your local machine (e.g. `/Desktop/MyOwnTaskManager/data`).
-3. Outline will create and maintain your data inside `outline-data.json` inside that folder.
+- Grayscale dashboard with monospace values.
+- Focus lists & habit streak tracking.
+- Study session timer.
+- Hydration & sleep logs.
+- Daily Intention (focus checklist).
+- Weekly Review (current week vs previous week stats and trend comparisons).
 
-*Note: Your personal logging data folder (`data/`) is ignored by Git, ensuring your commits stay clean and your data stays private.*
+## Setup
+
+1. Open [rumkid.github.io/Outline](https://rumkid.github.io/Outline/) in your browser.
+2. Select a folder on your machine where you want your data to live.
+3. That's it. Everything runs client-side in the browser.
