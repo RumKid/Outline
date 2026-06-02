@@ -829,8 +829,30 @@ const DM = {
     }
     const h = await this.getStoredHandle();
     if (h) {
-      // Has a stored handle — ask to restore
       this.dirHandle = h;
+      // Try to silently check if permission is already granted
+      try {
+        const q = await h.queryPermission({ mode: 'readwrite' });
+        if (q === 'granted') {
+          // Already have permission — load data and go straight in
+          const existing = await this.load();
+          await this.applyToStore(existing);
+          this.setStatus('connected', 'Data folder connected', h.name);
+          return 'ready';
+        }
+        // Permission not granted yet — try requesting it silently
+        // (some browsers allow this without a gesture on reload)
+        const r = await h.requestPermission({ mode: 'readwrite' });
+        if (r === 'granted') {
+          const existing = await this.load();
+          await this.applyToStore(existing);
+          this.setStatus('connected', 'Data folder connected', h.name);
+          return 'ready';
+        }
+      } catch(e) {
+        console.warn('Auto-restore failed:', e);
+      }
+      // Could not auto-restore — need user gesture
       return 'restore';
     }
     return 'setup';
@@ -1692,6 +1714,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (state === 'setup') {
     // Show setup overlay (already visible by default)
     $('setup-overlay').classList.remove('hidden');
+  } else if (state === 'ready') {
+    // Auto-restored successfully — go straight in
+    $('setup-overlay').classList.add('hidden');
+    $('restore-banner').classList.add('hidden');
+    renderView('dashboard');
+    updateScore();
   } else if (state === 'restore') {
     // Has a stored handle — need user gesture to restore permission
     $('setup-overlay').classList.add('hidden');
