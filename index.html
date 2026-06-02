@@ -400,6 +400,7 @@
 
     /* ── CHART ───────────────────────────────────────────────── */
     .chart-box { position:relative; height:180px; margin-top:12px; }
+    .chart-box-lg { position:relative; height:280px; margin-top:12px; }
 
     /* ── CONFETTI ─────────────────────────────────────────────── */
     @keyframes confettiFall { 0%{transform:translateY(-30px) rotate(0);opacity:1;} 100%{transform:translateY(100vh) rotate(720deg);opacity:0;} }
@@ -1163,6 +1164,39 @@ function makeChart(id,labels,data,color,unit=''){
   });
 }
 
+function makeLineChart(id,labels,data,unit=''){
+  if(chartI[id]){chartI[id].destroy();}
+  const ctx=$(id); if(!ctx) return;
+  chartI[id]=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[{
+      data,
+      borderColor:'#e4e4e7',
+      borderWidth:1.5,
+      pointRadius:0,
+      pointHoverRadius:4,
+      pointHoverBackgroundColor:'#ffffff',
+      pointHoverBorderColor:'#ffffff',
+      fill:true,
+      backgroundColor:'rgba(255,255,255,0.03)',
+      tension:0.3
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{
+        backgroundColor:'#17171a',titleColor:'#f4f4f5',bodyColor:'#9f9faf',
+        borderColor:'#242428',borderWidth:1,padding:10,cornerRadius:6,displayColors:false,
+        callbacks:{label:c=>`${c.parsed.y}${unit}`}
+      }},
+      scales:{
+        x:{grid:{display:false},border:{display:false},ticks:{color:'#52525b',font:{size:9,family:"'JetBrains Mono',monospace"},maxRotation:0,autoSkip:true,maxTicksLimit:10}},
+        y:{beginAtZero:true,grid:{color:'rgba(255,255,255,0.02)'},border:{display:false},ticks:{color:'#52525b',font:{size:10,family:"'JetBrains Mono',monospace"}}}
+      },
+      interaction:{mode:'index',intersect:false}
+    }
+  });
+}
+
 /* ================================================================
    WATER BOTTLE SVG
    ================================================================ */
@@ -1493,6 +1527,11 @@ function vStudy(){
         </div></div>
       </div>
     </div>
+
+    <div class="card" style="margin-top:20px;">
+      <div class="sec-label">60-Day Study History (hours)</div>
+      <div class="chart-box-lg"><canvas id="study-chart-60"></canvas></div>
+    </div>
   </div>`;
 }
 function startTimerDisp(){
@@ -1583,6 +1622,11 @@ function renderView(v){
   if(curView==='study'){
     const l7=last7(),ss=S.sessions();
     makeChart('study-chart',l7.map(fmtDate),l7.map(d=>+(ss.filter(x=>x.date===d).reduce((s,x)=>s+x.mins,0)/60).toFixed(2)),'#a78bfa','h');
+    // 60-day history line chart
+    const d60=Array.from({length:60},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(59-i));return d.toISOString().split('T')[0];});
+    const d60Labels=d60.map(d=>{const p=d.split('-');return `${p[1]}/${p[2]}`;});
+    const d60Data=d60.map(d=>+(ss.filter(x=>x.date===d).reduce((s,x)=>s+x.mins,0)/60).toFixed(2));
+    makeLineChart('study-chart-60',d60Labels,d60Data,'h');
     startTimerDisp();
   }
   if(curView==='sleep'){
