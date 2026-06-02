@@ -1044,15 +1044,24 @@ const S = {
   startSession(){ this.s('pvp_active',{start:new Date().toISOString()}); },
   stopSession(){
     const a=this.activeSession(); if(!a) return;
-    const mins=Math.round((Date.now()-new Date(a.start).getTime())/60000);
+    const MAX_SESSION_MINS = 240; // 4 hour cap
+    let mins=Math.round((Date.now()-new Date(a.start).getTime())/60000);
+    if(mins > MAX_SESSION_MINS) mins = MAX_SESSION_MINS;
+    if(mins < 1) mins = 1;
     const ss=this.sessions();
     ss.push({id:uid(),date:today(),start:a.start,end:new Date().toISOString(),mins});
     this.s('pvp_sessions',ss); this.s('pvp_active',null);
   },
   todayStudyMins(){
     const t=today();
-    return this.sessions().filter(s=>s.date===t).reduce((s,x)=>s+x.mins,0)
-      +(this.activeSession()?Math.floor((Date.now()-new Date(this.activeSession().start).getTime())/60000):0);
+    const completed = this.sessions().filter(s=>s.date===t).reduce((s,x)=>s+x.mins,0);
+    const a = this.activeSession();
+    let activeMins = 0;
+    if(a) {
+      activeMins = Math.floor((Date.now()-new Date(a.start).getTime())/60000);
+      if(activeMins > 240) activeMins = 240;
+    }
+    return completed + activeMins;
   },
   sleepMap(){ return this.g('pvp_sleep')||{}; },
   logSleep(bed,wake,mins){ const m=this.sleepMap(); m[today()]={bed,wake,mins}; this.s('pvp_sleep',m); },
@@ -1612,8 +1621,27 @@ document.addEventListener('keydown',e=>{
 /* ================================================================
    APP INIT
    ================================================================ */
+// Recover any stale study session left running from a previous visit
+function recoverStaleSession() {
+  const a = S.activeSession();
+  if (!a) return;
+  const MAX_SESSION_MINS = 240; // 4 hour cap
+  const elapsedMins = Math.round((Date.now() - new Date(a.start).getTime()) / 60000);
+  if (elapsedMins > MAX_SESSION_MINS) {
+    // Session was left running too long — auto-stop it with capped duration
+    const mins = MAX_SESSION_MINS;
+    const ss = S.sessions();
+    const sessionDate = a.start.split('T')[0]; // use the date it was started
+    ss.push({id:uid(), date:sessionDate, start:a.start, end:new Date().toISOString(), mins});
+    S.s('pvp_sessions', ss);
+    S.s('pvp_active', null);
+    console.log(`Recovered stale session (${elapsedMins}min elapsed, capped to ${mins}min)`);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   initDate();
+  recoverStaleSession();
 
   const state = await DM.init();
 
