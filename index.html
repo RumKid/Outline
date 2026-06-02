@@ -1582,7 +1582,7 @@ function vStudy(){
             <circle class="cd-ring-fill" id="cd-arc" cx="65" cy="65" r="58" stroke-width="4"
               stroke-dasharray="${2*Math.PI*58}" stroke-dashoffset="0"/>
           </svg>
-          <div class="cd-clock" id="cd-disp">${fmtCD(cdState.running ? cdState.remaining : cdState.duration)}</div>
+          <div class="cd-clock${cdState.running && cdState.remaining<=0 ? ' done' : ''}" id="cd-disp">${fmtCD(cdState.running ? cdState.remaining : cdState.duration)}</div>
         </div>
         <div class="cd-presets">
           ${[15,25,45,60].map(m=>`<button class="cd-preset${!cdState.running && cdState.duration===m*60?' active':''}" onclick="cdSetDuration(${m})">${m}m</button>`).join('')}
@@ -1658,6 +1658,23 @@ function cdToggle() {
     // Stop / Dismiss
     clearInterval(cdIv); cdIv = null;
     cdState.running = false;
+    if (cdState.remaining > 0) {
+      const elapsedSecs = cdState.duration - cdState.remaining;
+      const mins = Math.floor(elapsedSecs / 60);
+      if (mins >= 1) {
+        const ss = S.sessions();
+        const startTime = new Date(cdState.endTime - cdState.duration * 1000).toISOString();
+        ss.push({
+          id: uid(),
+          date: today(),
+          start: startTime,
+          end: new Date().toISOString(),
+          mins: mins
+        });
+        S.s('pvp_sessions', ss);
+        updateScore();
+      }
+    }
     cdState.remaining = cdState.duration;
     refreshView();
   } else {
@@ -1688,6 +1705,22 @@ function cdStartTick() {
       el.classList.add('done');
       if (status) status.textContent = "TIME'S UP!";
       cdNotify();
+      
+      const mins = Math.round(cdState.duration / 60);
+      if (mins >= 1) {
+        const ss = S.sessions();
+        const startTime = new Date(cdState.endTime - cdState.duration * 1000).toISOString();
+        ss.push({
+          id: uid(),
+          date: today(),
+          start: startTime,
+          end: new Date().toISOString(),
+          mins: mins
+        });
+        S.s('pvp_sessions', ss);
+        updateScore();
+        refreshView();
+      }
     }
   };
   tick();
@@ -1792,7 +1825,7 @@ function renderView(v){
     const d60Data=d60.map(d=>+(ss.filter(x=>x.date===d).reduce((s,x)=>s+x.mins,0)/60).toFixed(2));
     makeLineChart('study-chart-60',d60Labels,d60Data,'h');
     startTimerDisp();
-    if(cdState.running) cdStartTick();
+    if(cdState.running && cdState.remaining > 0) cdStartTick();
   }
   if(curView==='sleep'){
     const l7=last7(),slMap=S.sleepMap();
