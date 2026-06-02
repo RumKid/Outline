@@ -1712,21 +1712,42 @@ document.addEventListener('DOMContentLoaded', async () => {
   const state = await DM.init();
 
   if (state === 'setup') {
-    // Show setup overlay (already visible by default)
+    // First time — show setup overlay
     $('setup-overlay').classList.remove('hidden');
   } else if (state === 'ready') {
-    // Auto-restored successfully — go straight in
+    // Auto-restored (permission already granted)
     $('setup-overlay').classList.add('hidden');
     $('restore-banner').classList.add('hidden');
     renderView('dashboard');
     updateScore();
   } else if (state === 'restore') {
-    // Has a stored handle — need user gesture to restore permission
+    // Has a stored handle but needs a user gesture for permission.
+    // Skip the banner — just load from localStorage and silently
+    // reconnect file saving on the user's first click.
     $('setup-overlay').classList.add('hidden');
-    $('restore-banner').classList.remove('hidden');
-    // Render the app immediately using localStorage data (may be stale)
+    $('restore-banner').classList.add('hidden');
     renderView('dashboard');
     updateScore();
+    DM.setStatus('browser', 'Reconnecting…', 'Click anywhere');
+
+    // One-shot: on first user interaction, silently request permission
+    const silentRestore = async () => {
+      document.removeEventListener('click', silentRestore, true);
+      document.removeEventListener('keydown', silentRestore, true);
+      const ok = await DM.requestPermission();
+      if (ok) {
+        const existing = await DM.load();
+        await DM.applyToStore(existing);
+        DM.setStatus('connected', 'Data folder connected', DM.dirHandle.name);
+        refreshView();
+      } else {
+        // Permission denied — fall back to localStorage silently
+        DM.fallback = true;
+        DM.setStatus('browser', 'Browser storage', 'File access denied');
+      }
+    };
+    document.addEventListener('click', silentRestore, true);
+    document.addEventListener('keydown', silentRestore, true);
   } else {
     // Fallback mode
     $('setup-overlay').classList.add('hidden');
