@@ -1,0 +1,7 @@
+# Ignore local user data
+data/
+*.json
+
+# Ignore system junk files
+.DS_Store
+Thumbs.db
