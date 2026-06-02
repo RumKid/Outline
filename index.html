@@ -402,6 +402,36 @@
     .chart-box { position:relative; height:180px; margin-top:12px; }
     .chart-box-lg { position:relative; height:280px; margin-top:12px; }
 
+    /* ── COUNTDOWN TIMER ─────────────────────────────────────── */
+    .countdown-card {
+      display:flex; flex-direction:column; align-items:center;
+      justify-content:center; gap:14px; padding:28px 20px;
+    }
+    .cd-presets {
+      display:flex; gap:6px; flex-wrap:wrap; justify-content:center;
+    }
+    .cd-preset {
+      padding:7px 14px; border-radius:20px; font-size:12px; font-weight:600;
+      font-family:inherit; cursor:pointer; transition:var(--t);
+      background:var(--bg-elevated); border:1px solid var(--border-default);
+      color:var(--text-secondary);
+    }
+    .cd-preset:hover { border-color:var(--border-hover); color:var(--text-primary); }
+    .cd-preset.active { background:var(--text-primary); color:var(--bg-base); border-color:var(--text-primary); }
+    .cd-clock {
+      font-family:'JetBrains Mono',monospace; font-size:54px; font-weight:700;
+      letter-spacing:-2px; color:var(--text-primary); line-height:1;
+      font-variant-numeric:tabular-nums;
+    }
+    .cd-clock.done { animation: cdPulse 0.6s ease infinite alternate; }
+    @keyframes cdPulse { 0%{opacity:1;} 100%{opacity:0.3;} }
+    .cd-ring-track { fill:none; stroke:rgba(255,255,255,0.04); }
+    .cd-ring-fill { fill:none; stroke:#e4e4e7; stroke-linecap:round; transition:stroke-dashoffset 1s linear; }
+    .cd-label {
+      font-size:11px; color:var(--text-muted); text-transform:uppercase;
+      letter-spacing:0.8px; font-weight:700;
+    }
+
     /* ── CONFETTI ─────────────────────────────────────────────── */
     @keyframes confettiFall { 0%{transform:translateY(-30px) rotate(0);opacity:1;} 100%{transform:translateY(100vh) rotate(720deg);opacity:0;} }
     .confetti-piece { position:fixed; width:8px; height:8px; border-radius:2px; pointer-events:none; animation:confettiFall linear forwards; z-index:9999; }
@@ -1551,6 +1581,28 @@ function vStudy(){
     </div>
 
     <div class="card" style="margin-top:20px;">
+      <div class="sec-label">Focus Countdown</div>
+      <div class="countdown-card">
+        <div class="cd-label" id="cd-status">${cdState.running ? (cdState.remaining<=0?'TIME\'S UP!':'COUNTING DOWN') : 'SET A DURATION'}</div>
+        <div style="position:relative;display:inline-flex;align-items:center;justify-content:center;">
+          <svg width="140" height="140" style="transform:rotate(-90deg);">
+            <circle class="cd-ring-track" cx="70" cy="70" r="62" stroke-width="7"/>
+            <circle class="cd-ring-fill" id="cd-arc" cx="70" cy="70" r="62" stroke-width="7"
+              stroke-dasharray="${2*Math.PI*62}" stroke-dashoffset="0"/>
+          </svg>
+          <div class="cd-clock" id="cd-disp" style="position:absolute;">${fmtCD(cdState.running ? cdState.remaining : cdState.duration)}</div>
+        </div>
+        <div class="cd-presets">
+          ${[15,25,45,60].map(m=>`<button class="cd-preset${!cdState.running && cdState.duration===m*60?' active':''}" onclick="cdSetDuration(${m})">${m}m</button>`).join('')}
+          <button class="cd-preset" onclick="cdCustomDuration()">Custom</button>
+        </div>
+        <button class="timer-btn ${cdState.running?'timer-stop':'timer-start'}" onclick="cdToggle()">
+          ${cdState.running ? (cdState.remaining<=0?'✓ Dismiss':'⏹ Cancel') : '▶ Start Countdown'}
+        </button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px;">
       <div class="sec-label">60-Day Study History (hours)</div>
       <div class="chart-box-lg"><canvas id="study-chart-60"></canvas></div>
     </div>
@@ -1570,6 +1622,95 @@ function doToggleTimer(){
   if(S.activeSession()){S.stopSession();clearInterval(timerIv);timerIv=null;}
   else S.startSession();
   refreshView(); updateScore();
+}
+
+/* ── COUNTDOWN TIMER ── */
+let cdState = { duration: 25*60, remaining: 25*60, running: false, endTime: null };
+let cdIv = null;
+
+function fmtCD(secs) {
+  if (secs <= 0) return '00:00';
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function cdSetDuration(mins) {
+  if (cdState.running) return;
+  cdState.duration = mins * 60;
+  cdState.remaining = mins * 60;
+  refreshView();
+}
+
+function cdCustomDuration() {
+  if (cdState.running) return;
+  const v = parseInt(prompt('Enter minutes:'));
+  if (!isNaN(v) && v > 0 && v <= 180) {
+    cdState.duration = v * 60;
+    cdState.remaining = v * 60;
+    refreshView();
+  }
+}
+
+function cdToggle() {
+  if (cdState.running) {
+    // Stop / Dismiss
+    clearInterval(cdIv); cdIv = null;
+    cdState.running = false;
+    cdState.remaining = cdState.duration;
+    refreshView();
+  } else {
+    // Start
+    if (Notification.permission === 'default') Notification.requestPermission();
+    cdState.running = true;
+    cdState.endTime = Date.now() + cdState.duration * 1000;
+    cdState.remaining = cdState.duration;
+    cdStartTick();
+  }
+}
+
+function cdStartTick() {
+  if (cdIv) clearInterval(cdIv);
+  const circ = 2 * Math.PI * 62;
+  const tick = () => {
+    const el = $('cd-disp');
+    const arc = $('cd-arc');
+    const status = $('cd-status');
+    if (!el) { clearInterval(cdIv); return; }
+    cdState.remaining = Math.max(0, Math.round((cdState.endTime - Date.now()) / 1000));
+    el.textContent = fmtCD(cdState.remaining);
+    // Update ring
+    const pct = cdState.duration > 0 ? cdState.remaining / cdState.duration : 0;
+    if (arc) arc.setAttribute('stroke-dashoffset', circ * pct);
+    if (cdState.remaining <= 0) {
+      clearInterval(cdIv); cdIv = null;
+      el.classList.add('done');
+      if (status) status.textContent = "TIME'S UP!";
+      cdNotify();
+    }
+  };
+  tick();
+  cdIv = setInterval(tick, 1000);
+}
+
+function cdNotify() {
+  // Browser notification
+  if (Notification.permission === 'granted') {
+    new Notification('Outline — Timer Done', { body: `Your ${Math.round(cdState.duration/60)} minute session is complete.`, icon: '⏱' });
+  }
+  // Audio beep using Web Audio API
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.25, 0.5].forEach(delay => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.value = 0.15;
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.15);
+    });
+  } catch(e) { console.warn('Audio beep failed:', e); }
 }
 
 /* ── SLEEP ── */
@@ -1644,12 +1785,12 @@ function renderView(v){
   if(curView==='study'){
     const l7=last7(),ss=S.sessions();
     makeChart('study-chart',l7.map(fmtDate),l7.map(d=>+(ss.filter(x=>x.date===d).reduce((s,x)=>s+x.mins,0)/60).toFixed(2)),'#a78bfa','h');
-    // 60-day history line chart
     const d60=Array.from({length:60},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(59-i));return d.toISOString().split('T')[0];});
     const d60Labels=d60.map(d=>{const p=d.split('-');return `${p[1]}/${p[2]}`;});
     const d60Data=d60.map(d=>+(ss.filter(x=>x.date===d).reduce((s,x)=>s+x.mins,0)/60).toFixed(2));
     makeLineChart('study-chart-60',d60Labels,d60Data,'h');
     startTimerDisp();
+    if(cdState.running) cdStartTick();
   }
   if(curView==='sleep'){
     const l7=last7(),slMap=S.sleepMap();
