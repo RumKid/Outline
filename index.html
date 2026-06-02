@@ -1562,7 +1562,9 @@ function vStudy(){
   return `<div class="view-enter">
     <div class="page-header"><h1 class="page-title">Study Tracker</h1><p class="page-sub">Track your focus sessions.</p></div>
     <div class="study-layout">
+
       <div class="card"><div class="study-timer-card">
+        <div class="cd-label">STOPWATCH</div>
         <div class="timer-status-badge ${active?'status-active':'status-idle'}">${active?'● Recording':'○ Idle'}</div>
         <div class="timer-clock" id="timer-disp">00:00:00</div>
         <button class="timer-btn ${active?'timer-stop':'timer-start'}" onclick="doToggleTimer()">${active?'⏹ Stop Session':'▶ Start Session'}</button>
@@ -1571,40 +1573,40 @@ function vStudy(){
           <div class="study-today-val">${fmtDuration(totalMins)}</div>
         </div>
       </div></div>
-      <div style="display:flex;flex-direction:column;gap:16px;">
-        <div class="card"><div class="sec-label">Last 7 Days (hours)</div><div class="chart-box"><canvas id="study-chart"></canvas></div></div>
-        <div class="card"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <div class="stat-box"><div class="stat-box-label">7-Day Avg</div><div class="stat-box-value" style="color:var(--study);">${fmtDuration(avg7m)}</div></div>
-          <div class="stat-box"><div class="stat-box-label">Total Sessions</div><div class="stat-box-value" style="color:var(--study);">${ss.length}</div></div>
-        </div></div>
-      </div>
-    </div>
 
-    <div class="card" style="margin-top:20px;">
-      <div class="sec-label">Focus Countdown</div>
-      <div class="countdown-card">
-        <div class="cd-label" id="cd-status">${cdState.running ? (cdState.remaining<=0?'TIME\'S UP!':'COUNTING DOWN') : 'SET A DURATION'}</div>
-        <div style="position:relative;display:inline-flex;align-items:center;justify-content:center;">
-          <svg width="140" height="140" style="transform:rotate(-90deg);">
-            <circle class="cd-ring-track" cx="70" cy="70" r="62" stroke-width="7"/>
-            <circle class="cd-ring-fill" id="cd-arc" cx="70" cy="70" r="62" stroke-width="7"
-              stroke-dasharray="${2*Math.PI*62}" stroke-dashoffset="0"/>
+      <div class="card"><div class="countdown-card">
+        <div class="cd-label" id="cd-status">${cdState.running ? (cdState.remaining<=0?"TIME'S UP!":'COUNTING DOWN') : 'FOCUS COUNTDOWN'}</div>
+        <div style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:130px;height:130px;">
+          <svg width="130" height="130" style="position:absolute;transform:rotate(-90deg);">
+            <circle class="cd-ring-track" cx="65" cy="65" r="56" stroke-width="5"/>
+            <circle class="cd-ring-fill" id="cd-arc" cx="65" cy="65" r="56" stroke-width="5"
+              stroke-dasharray="${2*Math.PI*56}" stroke-dashoffset="0"/>
           </svg>
-          <div class="cd-clock" id="cd-disp" style="position:absolute;">${fmtCD(cdState.running ? cdState.remaining : cdState.duration)}</div>
+          <div class="cd-clock" id="cd-disp">${fmtCD(cdState.running ? cdState.remaining : cdState.duration)}</div>
         </div>
         <div class="cd-presets">
           ${[15,25,45,60].map(m=>`<button class="cd-preset${!cdState.running && cdState.duration===m*60?' active':''}" onclick="cdSetDuration(${m})">${m}m</button>`).join('')}
           <button class="cd-preset" onclick="cdCustomDuration()">Custom</button>
         </div>
         <button class="timer-btn ${cdState.running?'timer-stop':'timer-start'}" onclick="cdToggle()">
-          ${cdState.running ? (cdState.remaining<=0?'✓ Dismiss':'⏹ Cancel') : '▶ Start Countdown'}
+          ${cdState.running ? (cdState.remaining<=0?'✓ Dismiss':'⏹ Cancel') : '▶ Start'}
         </button>
-      </div>
-    </div>
+      </div></div>
 
-    <div class="card" style="margin-top:20px;">
-      <div class="sec-label">60-Day Study History (hours)</div>
-      <div class="chart-box-lg"><canvas id="study-chart-60"></canvas></div>
+      <div class="card" style="padding:20px;">
+        <div class="sec-label">Last 7 Days (hours)</div>
+        <div class="chart-box"><canvas id="study-chart"></canvas></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;">
+          <div class="stat-box"><div class="stat-box-label">7-Day Avg</div><div class="stat-box-value" style="color:var(--study);">${fmtDuration(avg7m)}</div></div>
+          <div class="stat-box"><div class="stat-box-label">Total Sessions</div><div class="stat-box-value" style="color:var(--study);">${ss.length}</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:20px;">
+        <div class="sec-label">60-Day History (hours)</div>
+        <div class="chart-box-lg" style="height:220px;"><canvas id="study-chart-60"></canvas></div>
+      </div>
+
     </div>
   </div>`;
 }
@@ -1670,7 +1672,7 @@ function cdToggle() {
 
 function cdStartTick() {
   if (cdIv) clearInterval(cdIv);
-  const circ = 2 * Math.PI * 62;
+  const circ = 2 * Math.PI * 56;
   const tick = () => {
     const el = $('cd-disp');
     const arc = $('cd-arc');
