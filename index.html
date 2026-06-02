@@ -419,8 +419,8 @@
     .cd-preset:hover { border-color:var(--border-hover); color:var(--text-primary); }
     .cd-preset.active { background:var(--text-primary); color:var(--bg-base); border-color:var(--text-primary); }
     .cd-clock {
-      font-family:'JetBrains Mono',monospace; font-size:54px; font-weight:700;
-      letter-spacing:-2px; color:var(--text-primary); line-height:1;
+      font-family:'JetBrains Mono',monospace; font-size:36px; font-weight:700;
+      letter-spacing:-1px; color:var(--text-primary); line-height:1;
       font-variant-numeric:tabular-nums;
     }
     .cd-clock.done { animation: cdPulse 0.6s ease infinite alternate; }
@@ -1578,9 +1578,9 @@ function vStudy(){
         <div class="cd-label" id="cd-status">${cdState.running ? (cdState.remaining<=0?"TIME'S UP!":'COUNTING DOWN') : 'FOCUS COUNTDOWN'}</div>
         <div style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:130px;height:130px;">
           <svg width="130" height="130" style="position:absolute;transform:rotate(-90deg);">
-            <circle class="cd-ring-track" cx="65" cy="65" r="56" stroke-width="5"/>
-            <circle class="cd-ring-fill" id="cd-arc" cx="65" cy="65" r="56" stroke-width="5"
-              stroke-dasharray="${2*Math.PI*56}" stroke-dashoffset="0"/>
+            <circle class="cd-ring-track" cx="65" cy="65" r="58" stroke-width="4"/>
+            <circle class="cd-ring-fill" id="cd-arc" cx="65" cy="65" r="58" stroke-width="4"
+              stroke-dasharray="${2*Math.PI*58}" stroke-dashoffset="0"/>
           </svg>
           <div class="cd-clock" id="cd-disp">${fmtCD(cdState.running ? cdState.remaining : cdState.duration)}</div>
         </div>
@@ -1672,7 +1672,7 @@ function cdToggle() {
 
 function cdStartTick() {
   if (cdIv) clearInterval(cdIv);
-  const circ = 2 * Math.PI * 56;
+  const circ = 2 * Math.PI * 58;
   const tick = () => {
     const el = $('cd-disp');
     const arc = $('cd-arc');
