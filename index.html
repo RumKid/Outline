@@ -326,6 +326,8 @@
     .task-item.done .task-title-txt { text-decoration:line-through; color:var(--text-muted); }
     .task-del { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:3px 5px; border-radius:5px; font-size:14px; transition:var(--t); }
     .task-del:hover { color:var(--danger); background:rgba(239,68,68,0.08); }
+    .add-subtask-btn { background:none; border:none; color:var(--text-secondary); cursor:pointer; padding:3px 5px; border-radius:5px; font-size:16px; transition:var(--t); display:inline-flex; align-items:center; justify-content:center; }
+    .add-subtask-btn:hover { color:var(--accent); background:rgba(255,255,255,0.06); }
     .pbar-labels { display:flex; justify-content:space-between; font-size:12px; color:var(--text-secondary); margin-bottom:8px; }
 
     /* ── HABITS ──────────────────────────────────────────────── */
@@ -1582,7 +1584,7 @@ function taskHTML(t){
       <div class="task-cb${t.done?' checked':''}" onclick="doToggleTask('${t.id}')">${t.done?'✓':''}</div>
       <div class="task-dot dot-${t.priority||'medium'}"></div>
       <span class="task-title-txt" style="flex:1;">${escH(t.title)}${fractionText}</span>
-      <button class="task-del" style="color:var(--text-muted);font-size:16px;margin-right:4px;" onclick="toggleAddSubForm('${t.id}')" title="Add subtask">＋</button>
+      <button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleAddSubForm('${t.id}')" title="Add subtask">+</button>
       <button class="task-del" onclick="doDelTask('${t.id}')">✕</button>
     </div>
     ${subtasksHTML}
