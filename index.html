@@ -1050,7 +1050,22 @@ const S = {
   g: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   s: (k,v) => { localStorage.setItem(k, JSON.stringify(v)); DM.save(); },
 
-  tasks()  { return this.g('pvp_tasks') || []; },
+  tasks()  {
+    const list = this.g('pvp_tasks') || [];
+    const t = today();
+    let changed = false;
+    const updated = list.map(task => {
+      if (!task.done && task.date < t) {
+        task.date = t;
+        changed = true;
+      }
+      return task;
+    });
+    if (changed) {
+      this.s('pvp_tasks', updated);
+    }
+    return updated;
+  },
   addTask(t){ const a=this.tasks(); a.push(t); this.s('pvp_tasks',a); },
   toggleTask(id){ this.s('pvp_tasks', this.tasks().map(t=>t.id===id?{...t,done:!t.done}:t)); },
   delTask(id){ this.s('pvp_tasks', this.tasks().filter(t=>t.id!==id)); },
