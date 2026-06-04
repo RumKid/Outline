@@ -1145,13 +1145,19 @@ const S = {
    ================================================================ */
 function calcScoreForDate(d){
   const dayTasks=S.tasks().filter(t=>t.date===d);
-  const taskS=dayTasks.length===0?1:dayTasks.filter(t=>t.done).length/dayTasks.length;
+  let taskS = 1;
+  if (dayTasks.length > 0) {
+    const weights = { high: 5, medium: 3, low: 1 };
+    const totalWeight = dayTasks.reduce((sum, t) => sum + (weights[t.priority] || 3), 0);
+    const doneWeight = dayTasks.filter(t => t.done).reduce((sum, t) => sum + (weights[t.priority] || 3), 0);
+    taskS = totalWeight === 0 ? 1 : doneWeight / totalWeight;
+  }
   const habits=S.habits();
   const habitS=habits.length===0?1:habits.filter(h=>h.logs.includes(d)).length/habits.length;
   const waterS=clamp((S.waterMap()[d]||0)/3500,0,1);
   const sl=S.sleepMap()[d]||null;
   const sleepS=sl?clamp(sl.mins/420,0,1):0;
-  return Math.round(taskS*30+habitS*30+waterS*20+sleepS*20);
+  return Math.round(taskS*30+habitS*20+waterS*25+sleepS*25);
 }
 function calcScore(){
   return calcScoreForDate(today());
