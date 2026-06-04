@@ -569,6 +569,8 @@
         grid-template-columns: 1fr;
       }
     }
+    .hidden { display: none !important; }
+    .subtask-item:hover { background: rgba(255,255,255,0.02); }
   </style>
 </head>
 <body>
@@ -1055,8 +1057,16 @@ const S = {
     const t = today();
     let changed = false;
     const updated = list.map(task => {
+      let isChangedThisTask = false;
+      if (!task.subtasks) {
+        task.subtasks = [];
+        isChangedThisTask = true;
+      }
       if (!task.done && task.date < t) {
         task.date = t;
+        isChangedThisTask = true;
+      }
+      if (isChangedThisTask) {
         changed = true;
       }
       return task;
@@ -1067,8 +1077,47 @@ const S = {
     return updated;
   },
   addTask(t){ const a=this.tasks(); a.push(t); this.s('pvp_tasks',a); },
-  toggleTask(id){ this.s('pvp_tasks', this.tasks().map(t=>t.id===id?{...t,done:!t.done}:t)); },
+  toggleTask(id){
+    this.s('pvp_tasks', this.tasks().map(t => {
+      if (t.id === id) {
+        const nextDone = !t.done;
+        const subs = (t.subtasks || []).map(s => ({ ...s, done: nextDone }));
+        return { ...t, done: nextDone, subtasks: subs };
+      }
+      return t;
+    }));
+  },
   delTask(id){ this.s('pvp_tasks', this.tasks().filter(t=>t.id!==id)); },
+  addSubtask(parentId, title) {
+    this.s('pvp_tasks', this.tasks().map(t => {
+      if (t.id === parentId) {
+        const subs = t.subtasks || [];
+        subs.push({ id: uid(), title, done: false });
+        return { ...t, subtasks: subs, done: false };
+      }
+      return t;
+    }));
+  },
+  toggleSubtask(parentId, subtaskId) {
+    this.s('pvp_tasks', this.tasks().map(t => {
+      if (t.id === parentId) {
+        const subs = (t.subtasks || []).map(s => s.id === subtaskId ? { ...s, done: !s.done } : s);
+        const allDone = subs.every(s => s.done);
+        return { ...t, subtasks: subs, done: allDone };
+      }
+      return t;
+    }));
+  },
+  delSubtask(parentId, subtaskId) {
+    this.s('pvp_tasks', this.tasks().map(t => {
+      if (t.id === parentId) {
+        const subs = (t.subtasks || []).filter(s => s.id !== subtaskId);
+        const allDone = subs.length > 0 ? subs.every(s => s.done) : t.done;
+        return { ...t, subtasks: subs, done: allDone };
+      }
+      return t;
+    }));
+  },
 
   habits() {
     let h=this.g('pvp_habits');
@@ -1473,12 +1522,77 @@ function vTasks(){
   </div>`;
 }
 
+const activeSubForms = {};
+
+function toggleAddSubForm(id) {
+  activeSubForms[id] = !activeSubForms[id];
+  refreshView();
+  if (activeSubForms[id]) {
+    setTimeout(() => $(`subin-${id}`)?.focus(), 50);
+  }
+}
+
+function doAddSubtask(parentId) {
+  const inp = $(`subin-${parentId}`);
+  const title = inp?.value?.trim();
+  if (!title) return;
+  S.addSubtask(parentId, title);
+  inp.value = '';
+  refreshView();
+  updateScore();
+  $(`subin-${parentId}`)?.focus();
+}
+
+function doToggleSubtask(parentId, subtaskId) {
+  S.toggleSubtask(parentId, subtaskId);
+  refreshView();
+  updateScore();
+}
+
+function doDelSubtask(parentId, subtaskId) {
+  S.delSubtask(parentId, subtaskId);
+  refreshView();
+  updateScore();
+}
+
 function taskHTML(t){
-  return `<div class="task-item${t.done?' done':''}" id="ti-${t.id}">
-    <div class="task-cb${t.done?' checked':''}" onclick="doToggleTask('${t.id}')">${t.done?'✓':''}</div>
-    <div class="task-dot dot-${t.priority||'medium'}"></div>
-    <span class="task-title-txt">${escH(t.title)}</span>
-    <button class="task-del" onclick="doDelTask('${t.id}')">✕</button>
+  const subtasks = t.subtasks || [];
+  const doneSubs = subtasks.filter(s=>s.done).length;
+  const totalSubs = subtasks.length;
+  const fractionText = totalSubs > 0 ? ` <span class="task-fraction" style="font-size:11px;color:var(--text-secondary);font-weight:600;margin-left:5px;">(${doneSubs}/${totalSubs})</span>` : '';
+  const isFormOpen = activeSubForms[t.id];
+
+  let subtasksHTML = '';
+  if (totalSubs > 0) {
+    subtasksHTML = `
+    <div class="subtasks-list" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">
+      ${subtasks.map(s => `
+        <div class="subtask-item ${s.done ? 'done' : ''}" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-${s.id}">
+          <div class="task-cb ${s.done ? 'checked' : ''}" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask('${t.id}', '${s.id}')">${s.done ? '✓' : ''}</div>
+          <span class="task-title-txt" style="${s.done ? 'text-decoration:line-through;color:var(--text-muted);' : ''};flex:1;">${escH(s.title)}</span>
+          <button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color='var(--danger)'" onmouseout="this.style.color='var(--text-muted)'" onclick="doDelSubtask('${t.id}', '${s.id}')">✕</button>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  return `
+  <div class="task-container" id="tc-${t.id}">
+    <div class="task-item${t.done?' done':''}" id="ti-${t.id}">
+      <div class="task-cb${t.done?' checked':''}" onclick="doToggleTask('${t.id}')">${t.done?'✓':''}</div>
+      <div class="task-dot dot-${t.priority||'medium'}"></div>
+      <span class="task-title-txt" style="flex:1;">${escH(t.title)}${fractionText}</span>
+      <button class="task-del" style="color:var(--text-muted);font-size:16px;margin-right:4px;" onclick="toggleAddSubForm('${t.id}')" title="Add subtask">＋</button>
+      <button class="task-del" onclick="doDelTask('${t.id}')">✕</button>
+    </div>
+    ${subtasksHTML}
+    <div class="add-subtask-form-container ${isFormOpen ? '' : 'hidden'}" id="asf-${t.id}" style="margin-left:36px;margin-top:5px;margin-bottom:8px;">
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="subin-${t.id}" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key==='Enter')doAddSubtask('${t.id}')">
+        <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddSubtask('${t.id}')">Add</button>
+        <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleAddSubForm('${t.id}')">Cancel</button>
+      </div>
+    </div>
   </div>`;
 }
 
