@@ -929,6 +929,7 @@ const DM = {
   // ── Write data to file ────────────────────────────────────────
   async save() {
     if (this.fallback || !this.dirHandle) return;
+    compileDailySummaries();
     // Debounce saves — wait 800ms after last change
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => this._doSave(), 800);
@@ -939,14 +940,15 @@ const DM = {
     this.setStatus('saving', 'Saving…', '');
     try {
       const data = {
-        tasks:      S.g('pvp_tasks')      || [],
-        habits:     S.g('pvp_habits')     || [],
-        water:      S.g('pvp_water')      || {},
-        sessions:   S.g('pvp_sessions')   || [],
-        active:     S.g('pvp_active'),
-        sleep:      S.g('pvp_sleep')      || {},
-        intentions: S.g('pvp_intentions') || {},
-        savedAt:    new Date().toISOString(),
+        tasks:          S.g('pvp_tasks')           || [],
+        habits:         S.g('pvp_habits')          || [],
+        water:          S.g('pvp_water')           || {},
+        sessions:       S.g('pvp_sessions')        || [],
+        active:         S.g('pvp_active'),
+        sleep:          S.g('pvp_sleep')           || {},
+        intentions:     S.g('pvp_intentions')      || {},
+        dailySummaries: S.g('pvp_daily_summaries') || {},
+        savedAt:        new Date().toISOString(),
       };
       const fh = await this.dirHandle.getFileHandle(this.fileName, { create: true });
       const wr = await fh.createWritable();
@@ -963,13 +965,16 @@ const DM = {
   // ── Load data into localStorage ───────────────────────────────
   async applyToStore(data) {
     if (!data) return;
-    if (data.tasks)      S.s('pvp_tasks',      data.tasks);
-    if (data.habits)     S.s('pvp_habits',     data.habits);
-    if (data.water)      S.s('pvp_water',      data.water);
-    if (data.sessions)   S.s('pvp_sessions',   data.sessions);
-    if (data.active)     S.s('pvp_active',     data.active);
-    if (data.sleep)      S.s('pvp_sleep',      data.sleep);
-    if (data.intentions) S.s('pvp_intentions', data.intentions);
+    S.clearCache();
+    if (data.tasks)          S.s('pvp_tasks',           data.tasks);
+    if (data.habits)         S.s('pvp_habits',          data.habits);
+    if (data.water)          S.s('pvp_water',           data.water);
+    if (data.sessions)       S.s('pvp_sessions',        data.sessions);
+    if (data.active)         S.s('pvp_active',          data.active);
+    if (data.sleep)          S.s('pvp_sleep',           data.sleep);
+    if (data.intentions)     S.s('pvp_intentions',      data.intentions);
+    if (data.dailySummaries) S.s('pvp_daily_summaries', data.dailySummaries);
+    compileDailySummaries();
   },
 
   // ── Status badge ─────────────────────────────────────────────
@@ -1051,8 +1056,29 @@ function hideOverlay() { $('setup-overlay').classList.add('hidden'); }
    STORE (localStorage runtime cache + triggers DM.save)
    ================================================================ */
 const S = {
-  g: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
-  s: (k,v) => { localStorage.setItem(k, JSON.stringify(v)); DM.save(); },
+  _cache: {},
+  g(k) {
+    if (this._cache[k] !== undefined) return this._cache[k];
+    try {
+      const val = JSON.parse(localStorage.getItem(k));
+      this._cache[k] = val;
+      return val;
+    } catch {
+      return null;
+    }
+  },
+  s(k,v) {
+    this._cache[k] = v;
+    localStorage.setItem(k, JSON.stringify(v));
+    DM.save();
+  },
+  sSilent(k,v) {
+    this._cache[k] = v;
+    localStorage.setItem(k, JSON.stringify(v));
+  },
+  clearCache() {
+    this._cache = {};
+  },
 
   tasks()  {
     const list = this.g('pvp_tasks') || [];
@@ -1231,6 +1257,77 @@ function updateScore(){
   const arc=$('score-mini-arc');
   if(arc){ const c=2*Math.PI*11; arc.setAttribute('stroke-dashoffset',c*(1-s/100)); }
   if(s===100) triggerConfetti();
+}
+
+function compileDailySummaries() {
+  const summaries = S.g('pvp_daily_summaries') || {};
+  const datesSet = new Set();
+  
+  const taskList = S.tasks();
+  taskList.forEach(t => { if (t.date) datesSet.add(t.date); });
+  
+  const waterMap = S.waterMap();
+  Object.keys(waterMap).forEach(d => datesSet.add(d));
+  
+  const sleepMap = S.sleepMap();
+  Object.keys(sleepMap).forEach(d => datesSet.add(d));
+  
+  const sessions = S.sessions();
+  sessions.forEach(s => { if (s.date) datesSet.add(s.date); });
+  
+  const intentions = S.intentions();
+  Object.keys(intentions).forEach(d => datesSet.add(d));
+  
+  const habits = S.habits();
+  habits.forEach(h => {
+    (h.logs || []).forEach(d => datesSet.add(d));
+  });
+
+  let changed = false;
+  datesSet.forEach(d => {
+    const dayTasks = taskList.filter(t => t.date === d);
+    const totalTasks = dayTasks.length;
+    const completedTasks = dayTasks.filter(t => t.done).length;
+    
+    const waterMl = waterMap[d] || 0;
+    const sleepMins = sleepMap[d]?.mins || 0;
+    const studyMins = sessions.filter(s => s.date === d).reduce((sum, s) => sum + s.mins, 0);
+    const habitsCompleted = habits.filter(h => h.logs.includes(d)).length;
+    const habitsTotal = habits.length;
+    const score = calcScoreForDate(d);
+    const intention = intentions[d] || '';
+
+    const existing = summaries[d];
+    if (!existing ||
+        existing.daily_score !== score ||
+        existing.tasks_total !== totalTasks ||
+        existing.tasks_completed !== completedTasks ||
+        existing.water_ml !== waterMl ||
+        existing.sleep_minutes !== sleepMins ||
+        existing.study_minutes !== studyMins ||
+        existing.habits_completed !== habitsCompleted ||
+        existing.habits_total !== habitsTotal ||
+        existing.intention !== intention) {
+      
+      summaries[d] = {
+        date: d,
+        daily_score: score,
+        tasks_total: totalTasks,
+        tasks_completed: completedTasks,
+        water_ml: waterMl,
+        sleep_minutes: sleepMins,
+        study_minutes: studyMins,
+        habits_completed: habitsCompleted,
+        habits_total: habitsTotal,
+        intention: intention
+      };
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    S.sSilent('pvp_daily_summaries', summaries);
+  }
 }
 
 /* ================================================================
