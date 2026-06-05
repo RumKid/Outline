@@ -1199,9 +1199,20 @@ function calcScoreForDate(d){
   let taskS = 1;
   if (dayTasks.length > 0) {
     const weights = { high: 5, medium: 3, low: 1 };
-    const totalWeight = dayTasks.reduce((sum, t) => sum + (weights[t.priority] || 3), 0);
-    const doneWeight = dayTasks.filter(t => t.done).reduce((sum, t) => sum + (weights[t.priority] || 3), 0);
-    taskS = totalWeight === 0 ? 1 : doneWeight / totalWeight;
+    let totalWeight = 0;
+    let earnedWeight = 0;
+    dayTasks.forEach(t => {
+      const w = weights[t.priority] || 3;
+      totalWeight += w;
+      const subs = t.subtasks || [];
+      if (subs.length > 0) {
+        const doneSubs = subs.filter(s => s.done).length;
+        earnedWeight += (doneSubs / subs.length) * w;
+      } else {
+        earnedWeight += (t.done ? 1 : 0) * w;
+      }
+    });
+    taskS = totalWeight === 0 ? 1 : earnedWeight / totalWeight;
   }
   const habits=S.habits();
   const habitS=habits.length===0?1:habits.filter(h=>h.logs.includes(d)).length/habits.length;
