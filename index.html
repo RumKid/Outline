@@ -573,6 +573,24 @@
     }
     .hidden { display: none !important; }
     .subtask-item:hover { background: rgba(255,255,255,0.02); }
+
+    /* ── JOURNAL ─────────────────────────────────────────────── */
+    .journal-layout { display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: start; }
+    .journal-date-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--r-card); padding: 10px 18px; }
+    .j-date-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 18px; transition: var(--t); padding: 4px 8px; border-radius: 4px; }
+    .j-date-btn:hover { color: var(--text-primary); background: var(--border-subtle); }
+    .j-date-txt { font-family: 'Outfit', sans-serif; font-size: 15px; font-weight: 700; color: var(--text-primary); }
+    .j-capsule-grid { display: flex; flex-direction: column; gap: 14px; }
+    .j-capsule-group { display: flex; flex-wrap: wrap; gap: 6px; }
+    .j-capsule { background: var(--bg-elevated); border: 1px solid var(--border-default); color: var(--text-secondary); padding: 8px 12px; border-radius: var(--r-btn); font-size: 12.5px; cursor: pointer; transition: var(--t); user-select: none; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+    .j-capsule:hover { border-color: var(--border-hover); color: var(--text-primary); }
+    .j-capsule.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 700; }
+    .j-textarea { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--r-card); padding: 22px; width: 100%; min-height: 400px; color: var(--text-primary); font-family: inherit; font-size: 14px; line-height: 1.6; outline: none; resize: vertical; transition: border-color var(--t); }
+    .j-textarea:focus { border-color: var(--text-primary); }
+    .j-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+    @media (max-width: 800px) {
+      .journal-layout { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -648,6 +666,9 @@
       </a>
       <a class="nav-item" data-view="sleep" onclick="navigate('sleep')">
         <span class="nav-ind"></span><span class="nav-emoji">🌙</span><span>Sleep</span>
+      </a>
+      <a class="nav-item" data-view="journal" onclick="navigate('journal')">
+        <span class="nav-ind"></span><span class="nav-emoji">📖</span><span>Journal</span>
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -818,8 +839,10 @@ function renderTrendWater(cur, prev) {
 const DM = {
   dirHandle: null,
   fileName: 'outline-data.json',
+  journalFileName: 'outline-journal.json',
   fallback: false,          // true = localStorage-only mode
   saveTimer: null,
+  saveJournalTimer: null,
 
   // ── IndexedDB: persist the directory handle ──────────────────
   _dbProm: null,
@@ -869,8 +892,7 @@ const DM = {
         const q = await h.queryPermission({ mode: 'readwrite' });
         if (q === 'granted') {
           // Already have permission — load data and go straight in
-          const existing = await this.load();
-          await this.applyToStore(existing);
+          await this.loadAll();
           this.setStatus('connected', 'Data folder connected', h.name);
           return 'ready';
         }
@@ -878,8 +900,7 @@ const DM = {
         // (some browsers allow this without a gesture on reload)
         const r = await h.requestPermission({ mode: 'readwrite' });
         if (r === 'granted') {
-          const existing = await this.load();
-          await this.applyToStore(existing);
+          await this.loadAll();
           this.setStatus('connected', 'Data folder connected', h.name);
           return 'ready';
         }
@@ -962,6 +983,46 @@ const DM = {
     }
   },
 
+  // ── Read journal from file ────────────────────────────────────
+  async loadJournal() {
+    if (this.fallback || !this.dirHandle) return null;
+    try {
+      const fh = await this.dirHandle.getFileHandle(this.journalFileName);
+      const file = await fh.getFile();
+      const txt = await file.text();
+      return JSON.parse(txt);
+    } catch { return null; }
+  },
+
+  // ── Write journal to file ─────────────────────────────────────
+  async saveJournal() {
+    if (this.fallback || !this.dirHandle) return;
+    clearTimeout(this.saveJournalTimer);
+    this.saveJournalTimer = setTimeout(() => this._doSaveJournal(), 800);
+  },
+
+  async _doSaveJournal() {
+    if (!this.dirHandle) return;
+    try {
+      const data = S.g('pvp_journal') || {};
+      const fh = await this.dirHandle.getFileHandle(this.journalFileName, { create: true });
+      const wr = await fh.createWritable();
+      await wr.write(JSON.stringify(data, null, 2));
+      await wr.close();
+    } catch(e) {
+      console.error('Journal save failed:', e);
+    }
+  },
+
+  async loadAll() {
+    const existing = await this.load();
+    await this.applyToStore(existing);
+    const existingJournal = await this.loadJournal();
+    if (existingJournal) {
+      S.sSilent('pvp_journal', existingJournal);
+    }
+  },
+
   // ── Load data into localStorage ───────────────────────────────
   async applyToStore(data) {
     if (!data) return;
@@ -1009,8 +1070,7 @@ async function restorePermission() {
   const ok = await DM.requestPermission();
   if (ok) {
     $('restore-banner').classList.add('hidden');
-    const existing = await DM.load();
-    await DM.applyToStore(existing);
+    await DM.loadAll();
     DM.setStatus('connected', 'Data folder connected', DM.dirHandle.name);
     hideOverlay();
     renderView('dashboard');
@@ -1024,12 +1084,15 @@ async function restorePermission() {
 
 async function finishSetup(isChange) {
   // Try to load existing data from the chosen folder
+  await DM.loadAll();
   const existing = await DM.load();
-  if (existing) {
-    await DM.applyToStore(existing);
-  } else {
+  if (!existing) {
     // First time — save current (possibly empty) data
     await DM._doSave();
+  }
+  const existingJournal = await DM.loadJournal();
+  if (!existingJournal) {
+    await DM._doSaveJournal();
   }
   DM.setStatus('connected', 'Data folder connected', DM.dirHandle.name);
   if (isChange) {
@@ -1215,6 +1278,13 @@ const S = {
   intentions() { return this.g('pvp_intentions') || {}; },
   todayIntention() { return this.intentions()[today()] || ''; },
   setIntention(val) { const i = this.intentions(); i[today()] = val; this.s('pvp_intentions', i); },
+
+  journalMap() { return this.g('pvp_journal') || {}; },
+  saveJournal(map) {
+    this._cache['pvp_journal'] = map;
+    localStorage.setItem('pvp_journal', JSON.stringify(map));
+    DM.saveJournal();
+  },
 };
 
 /* ================================================================
@@ -2044,6 +2114,144 @@ function doLogSleep(){
   S.logSleep(b,w,sleepMins(b,w)); updateScore(); refreshView();
 }
 
+/* ── JOURNAL ── */
+let journalSelectedDate = today();
+let journalDebounceTimer = null;
+
+function fmtFullDate(dStr) {
+  const d = new Date(dStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function selectJournalOption(metric, value) {
+  const d = journalSelectedDate;
+  const map = S.journalMap();
+  if (!map[d]) {
+    map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
+  }
+  map[d][metric] = value;
+  S.saveJournal(map);
+  refreshView();
+}
+
+function updateJournalText(text) {
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  const charCount = text.length;
+  const wcEl = $('j-word-count'), ccEl = $('j-char-count'), stEl = $('j-save-status');
+  if (wcEl) wcEl.textContent = wordCount;
+  if (ccEl) ccEl.textContent = charCount;
+  if (stEl) stEl.textContent = 'Saving changes...';
+  
+  clearTimeout(journalDebounceTimer);
+  journalDebounceTimer = setTimeout(() => {
+    const d = journalSelectedDate;
+    const map = S.journalMap();
+    if (!map[d]) {
+      map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
+    }
+    map[d].text = text;
+    S.saveJournal(map);
+    if (stEl) stEl.textContent = 'All changes saved locally';
+  }, 500);
+}
+
+function navigateJournalDate(offset) {
+  const d = new Date(journalSelectedDate + 'T12:00:00');
+  d.setDate(d.getDate() + offset);
+  journalSelectedDate = d.toISOString().split('T')[0];
+  refreshView();
+}
+
+function vJournal() {
+  const d = journalSelectedDate;
+  const map = S.journalMap();
+  const entry = map[d] || { mood: '', energy: '', focus: '', physical: '', text: '' };
+  
+  const moodOptions = [
+    { value: 'Great', emoji: '😊' },
+    { value: 'Good', emoji: '🙂' },
+    { value: 'Okay', emoji: '😐' },
+    { value: 'Bad', emoji: '😔' },
+    { value: 'Stressed', emoji: '😰' }
+  ];
+  
+  const energyOptions = [
+    { value: 'High', emoji: '⚡' },
+    { value: 'Medium', emoji: '🔋' },
+    { value: 'Low', emoji: '💤' }
+  ];
+
+  const focusOptions = [
+    { value: 'Flow', emoji: '🌊' },
+    { value: 'Focused', emoji: '🎯' },
+    { value: 'Distracted', emoji: '🌀' }
+  ];
+
+  const physicalOptions = [
+    { value: 'Energetic', emoji: '💪' },
+    { value: 'Okay', emoji: '🔋' },
+    { value: 'Tired', emoji: '🥱' },
+    { value: 'Sick', emoji: '🤒' }
+  ];
+
+  const makeCapsules = (options, currentVal, metricName) => {
+    return options.map(opt => {
+      const active = opt.value === currentVal ? ' active' : '';
+      return `<div class="j-capsule${active}" onclick="selectJournalOption('${metricName}', '${opt.value}')">
+        <span>${opt.emoji}</span><span>${opt.value}</span>
+      </div>`;
+    }).join('');
+  };
+
+  const wordCount = entry.text ? entry.text.trim().split(/\s+/).filter(Boolean).length : 0;
+  const charCount = entry.text ? entry.text.length : 0;
+
+  return `<div class="view-enter">
+    <div class="page-header">
+      <h1 class="page-title">Daily Journal</h1>
+      <p class="page-sub">Reflect on your day, log your metrics, and capture your thoughts.</p>
+    </div>
+
+    <div class="journal-date-bar">
+      <button class="j-date-btn" onclick="navigateJournalDate(-1)" title="Previous Day">◀</button>
+      <span class="j-date-txt" id="j-date-display">${fmtFullDate(d)}</span>
+      <button class="j-date-btn" onclick="navigateJournalDate(1)" title="Next Day">▶</button>
+    </div>
+
+    <div class="journal-layout">
+      <div class="card j-capsule-grid">
+        <div class="sec-label">How is your mood?</div>
+        <div class="j-capsule-group">
+          ${makeCapsules(moodOptions, entry.mood, 'mood')}
+        </div>
+
+        <div class="sec-label" style="margin-top: 10px;">Energy Level</div>
+        <div class="j-capsule-group">
+          ${makeCapsules(energyOptions, entry.energy, 'energy')}
+        </div>
+
+        <div class="sec-label" style="margin-top: 10px;">Focus Level</div>
+        <div class="j-capsule-group">
+          ${makeCapsules(focusOptions, entry.focus, 'focus')}
+        </div>
+
+        <div class="sec-label" style="margin-top: 10px;">Physical State</div>
+        <div class="j-capsule-group">
+          ${makeCapsules(physicalOptions, entry.physical, 'physical')}
+        </div>
+      </div>
+
+      <div>
+        <textarea id="journal-text-area" class="j-textarea" placeholder="Start writing here... What did you do today? What are you grateful for?" oninput="updateJournalText(this.value)">${escH(entry.text || '')}</textarea>
+        <div class="j-meta">
+          <span id="j-save-status">All changes saved locally</span>
+          <span><span id="j-word-count">${wordCount}</span> words &middot; <span id="j-char-count">${charCount}</span> characters</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
 /* ================================================================
    ROUTER
    ================================================================ */
@@ -2055,7 +2263,7 @@ function renderView(v){
   curView=v||'dashboard';
   if(timerIv&&v!=='study'){clearInterval(timerIv);timerIv=null;}
   const c=$('content'); if(!c) return;
-  const map={dashboard:vDashboard,tasks:vTasks,habits:vHabits,water:vWater,study:vStudy,sleep:vSleep};
+  const map={dashboard:vDashboard,tasks:vTasks,habits:vHabits,water:vWater,study:vStudy,sleep:vSleep,journal:vJournal};
   c.innerHTML=(map[curView]||vDashboard)();
   c.scrollTop=0;
   if(curView==='water'){
@@ -2157,8 +2365,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.removeEventListener('keydown', silentRestore, true);
       const ok = await DM.requestPermission();
       if (ok) {
-        const existing = await DM.load();
-        await DM.applyToStore(existing);
+        await DM.loadAll();
         DM.setStatus('connected', 'Data folder connected', DM.dirHandle.name);
         refreshView();
       } else {
