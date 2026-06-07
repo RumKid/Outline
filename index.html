@@ -588,8 +588,31 @@
     .j-textarea { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--r-card); padding: 22px; width: 100%; min-height: 400px; color: var(--text-primary); font-family: inherit; font-size: 14px; line-height: 1.6; outline: none; resize: vertical; transition: border-color var(--t); }
     .j-textarea:focus { border-color: var(--text-primary); }
     .j-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+    .hidden { display: none !important; }
+    .subtask-item:hover { background: rgba(255,255,255,0.02); }
+
+    /* ── IDEAS KANBAN ─────────────────────────────────────────── */
+    .ideas-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; margin-top: 10px; }
+    .ideas-column { background: var(--bg-sidebar); border: 1px solid var(--border-default); border-radius: var(--r-card); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 500px; }
+    .ideas-column-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-default); padding-bottom: 10px; margin-bottom: 4px; }
+    .ideas-column-title { font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 700; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px; }
+    .ideas-column-count { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: var(--text-muted); background: var(--border-subtle); padding: 2px 6px; border-radius: 10px; }
+    .idea-card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--r-btn); padding: 14px; transition: var(--t); cursor: pointer; position: relative; }
+    .idea-card:hover { border-color: var(--border-hover); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .idea-card.editing { border-color: var(--text-primary); cursor: default; }
+    .idea-title { font-family: 'Outfit', sans-serif; font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; line-height: 1.3; }
+    .idea-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; white-space: pre-wrap; }
+    .idea-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; border-top: 1px dashed var(--border-subtle); padding-top: 8px; opacity: 0; transition: var(--t); }
+    .idea-card:hover .idea-actions { opacity: 1; }
+    .idea-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; transition: var(--t); display: inline-flex; align-items: center; justify-content: center; padding: 2px 4px; border-radius: 4px; }
+    .idea-btn:hover { color: var(--text-primary); background: var(--border-subtle); }
+    .idea-btn.del:hover { color: var(--danger); background: rgba(239,68,68,0.08); }
+    .add-idea-inline { background: var(--bg-card); border: 1px dashed var(--border-default); border-radius: var(--r-btn); padding: 10px 14px; color: var(--text-secondary); font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer; transition: var(--t); text-align: center; }
+    .add-idea-inline:hover { border-color: var(--text-primary); color: var(--text-primary); }
+    .idea-edit-in { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 4px; color: var(--text-primary); font-family: inherit; font-size: 12.5px; padding: 6px 8px; width: 100%; outline: none; margin-bottom: 6px; }
+    .idea-edit-in:focus { border-color: var(--text-primary); }
     @media (max-width: 800px) {
-      .journal-layout { grid-template-columns: 1fr; }
+      .ideas-board { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -669,6 +692,9 @@
       </a>
       <a class="nav-item" data-view="journal" onclick="navigate('journal')">
         <span class="nav-ind"></span><span class="nav-emoji">📖</span><span>Journal</span>
+      </a>
+      <a class="nav-item" data-view="ideas" onclick="navigate('ideas')">
+        <span class="nav-ind"></span><span class="nav-emoji">💡</span><span>Ideas</span>
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -969,6 +995,7 @@ const DM = {
         sleep:          S.g('pvp_sleep')           || {},
         intentions:     S.g('pvp_intentions')      || {},
         dailySummaries: S.g('pvp_daily_summaries') || {},
+        ideas:          S.g('pvp_ideas')           || [],
         savedAt:        new Date().toISOString(),
       };
       const fh = await this.dirHandle.getFileHandle(this.fileName, { create: true });
@@ -1035,6 +1062,7 @@ const DM = {
     if (data.sleep)          S.s('pvp_sleep',           data.sleep);
     if (data.intentions)     S.s('pvp_intentions',      data.intentions);
     if (data.dailySummaries) S.s('pvp_daily_summaries', data.dailySummaries);
+    if (data.ideas)          S.s('pvp_ideas',           data.ideas);
     compileDailySummaries();
   },
 
@@ -1284,6 +1312,26 @@ const S = {
     this._cache['pvp_journal'] = map;
     localStorage.setItem('pvp_journal', JSON.stringify(map));
     DM.saveJournal();
+  },
+
+  ideas() { return this.g('pvp_ideas') || []; },
+  addIdea(title, desc) {
+    const list = this.ideas();
+    list.push({ id: uid(), title, desc, column: 'inbox' });
+    this.s('pvp_ideas', list);
+  },
+  updateIdea(id, fields) {
+    const list = this.ideas().map(idea => {
+      if (idea.id === id) {
+        return { ...idea, ...fields };
+      }
+      return idea;
+    });
+    this.s('pvp_ideas', list);
+  },
+  delIdea(id) {
+    const list = this.ideas().filter(idea => idea.id !== id);
+    this.s('pvp_ideas', list);
   },
 };
 
@@ -2252,6 +2300,150 @@ function vJournal() {
   </div>`;
 }
 
+/* ── IDEAS ── */
+let activeIdeaEditId = null;
+
+function toggleAddIdeaForm(show) {
+  const btn = $('ai-btn'), form = $('ai-form');
+  if (!btn || !form) return;
+  if (show) {
+    btn.classList.add('hidden');
+    form.classList.remove('hidden');
+    $('ai-title')?.focus();
+  } else {
+    btn.classList.remove('hidden');
+    form.classList.add('hidden');
+    $('ai-title').value = '';
+    $('ai-desc').value = '';
+  }
+}
+
+function doAddIdea() {
+  const titleIn = $('ai-title'), descIn = $('ai-desc');
+  const title = titleIn?.value?.trim();
+  if (!title) return;
+  const desc = descIn?.value?.trim() || '';
+  S.addIdea(title, desc);
+  refreshView();
+}
+
+function toggleEditIdea(id) {
+  activeIdeaEditId = id;
+  refreshView();
+  if (id) {
+    $(`edit-title-${id}`)?.focus();
+  }
+}
+
+function doSaveIdeaEdit(id) {
+  const tIn = $(`edit-title-${id}`), dIn = $(`edit-desc-${id}`);
+  const title = tIn?.value?.trim();
+  if (!title) return;
+  const desc = dIn?.value?.trim() || '';
+  S.updateIdea(id, { title, desc });
+  toggleEditIdea(null);
+}
+
+function doMoveIdea(id, dir) {
+  const ideas = S.ideas();
+  const idea = ideas.find(i => i.id === id);
+  if (!idea) return;
+  const colOrder = ['inbox', 'refining', 'archived'];
+  const curIdx = colOrder.indexOf(idea.column);
+  let nextIdx = curIdx + dir;
+  if (nextIdx >= 0 && nextIdx < colOrder.length) {
+    S.updateIdea(id, { column: colOrder[nextIdx] });
+    refreshView();
+  }
+}
+
+function doDelIdea(id) {
+  if (confirm('Delete this idea card?')) {
+    S.delIdea(id);
+    refreshView();
+  }
+}
+
+function ideaCardHTML(i) {
+  const isEditing = activeIdeaEditId === i.id;
+  
+  if (isEditing) {
+    return `<div class="idea-card editing" onclick="event.stopPropagation()">
+      <input type="text" id="edit-title-${i.id}" class="idea-edit-in" style="font-weight:700;" value="${escH(i.title)}">
+      <textarea id="edit-desc-${i.id}" class="idea-edit-in" style="height:80px;resize:vertical;">${escH(i.desc || '')}</textarea>
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px;">
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="toggleEditIdea(null)">Cancel</button>
+        <button class="btn btn-primary" style="padding:4px 10px;font-size:11px;" onclick="doSaveIdeaEdit('${i.id}')">Save</button>
+      </div>
+    </div>`;
+  }
+
+  const showLeft = i.column !== 'inbox';
+  const showRight = i.column !== 'archived';
+
+  return `<div class="idea-card" onclick="toggleEditIdea('${i.id}')">
+    <div class="idea-title">${escH(i.title)}</div>
+    ${i.desc ? `<div class="idea-desc">${escH(i.desc)}</div>` : ''}
+    <div class="idea-actions" onclick="event.stopPropagation()">
+      ${showLeft ? `<button class="idea-btn" onclick="doMoveIdea('${i.id}', -1)" title="Move Left">◀</button>` : ''}
+      ${showRight ? `<button class="idea-btn" onclick="doMoveIdea('${i.id}', 1)" title="Move Right">▶</button>` : ''}
+      <button class="idea-btn del" style="margin-left:auto;" onclick="doDelIdea('${i.id}')" title="Delete">✕</button>
+    </div>
+  </div>`;
+}
+
+function vIdeas() {
+  const ideas = S.ideas();
+  const columns = [
+    { id: 'inbox', title: 'Inbox', emoji: '📥', list: ideas.filter(i => i.column === 'inbox') },
+    { id: 'refining', title: 'Refining', emoji: '⚙️', list: ideas.filter(i => i.column === 'refining') },
+    { id: 'archived', title: 'Archived', emoji: '📁', list: ideas.filter(i => i.column === 'archived') }
+  ];
+
+  return `<div class="view-enter">
+    <div class="page-header">
+      <h1 class="page-title">Ideas Board</h1>
+      <p class="page-sub">Brainstorm, refine, and archive your projects and thoughts.</p>
+    </div>
+
+    <div class="ideas-board">
+      ${columns.map(col => `
+        <div class="ideas-column">
+          <div class="ideas-column-header">
+            <span class="ideas-column-title">${col.emoji} &nbsp;${col.title}</span>
+            <span class="ideas-column-count">${col.list.length}</span>
+          </div>
+          
+          ${col.id === 'inbox' ? `
+            <div style="margin-bottom: 8px;">
+              <div class="add-idea-inline" id="ai-btn" onclick="toggleAddIdeaForm(true)">
+                ＋ New Idea
+              </div>
+              <div id="ai-form" class="card hidden" style="padding:14px;display:flex;flex-direction:column;gap:8px;">
+                <input type="text" id="ai-title" class="idea-edit-in" placeholder="Idea title..." style="margin-bottom:4px;">
+                <textarea id="ai-desc" class="idea-edit-in" placeholder="Short description..." style="height:60px;resize:none;margin-bottom:8px;"></textarea>
+                <div style="display:flex;gap:6px;justify-content:flex-end;">
+                  <button class="btn btn-ghost" style="padding:5px 10px;font-size:11.5px;" onclick="toggleAddIdeaForm(false)">Cancel</button>
+                  <button class="btn btn-primary" style="padding:5px 12px;font-size:11.5px;" onclick="doAddIdea()">Add</button>
+                </div>
+              </div>
+            </div>
+          ` : ''}
+
+          <div style="display:flex;flex-direction:column;gap:10px;overflow-y:auto;max-height:600px;padding-right:2px;">
+            ${col.list.length === 0 && col.id !== 'inbox' ? `
+              <div style="text-align:center;padding:24px 10px;color:var(--text-muted);font-size:12px;border:1px dashed var(--border-default);border-radius:var(--r-btn);">
+                Empty column
+              </div>
+            ` : ''}
+            ${col.list.map(idea => ideaCardHTML(idea)).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
+}
+
 /* ================================================================
    ROUTER
    ================================================================ */
@@ -2263,7 +2455,7 @@ function renderView(v){
   curView=v||'dashboard';
   if(timerIv&&v!=='study'){clearInterval(timerIv);timerIv=null;}
   const c=$('content'); if(!c) return;
-  const map={dashboard:vDashboard,tasks:vTasks,habits:vHabits,water:vWater,study:vStudy,sleep:vSleep,journal:vJournal};
+  const map={dashboard:vDashboard,tasks:vTasks,habits:vHabits,water:vWater,study:vStudy,sleep:vSleep,journal:vJournal,ideas:vIdeas};
   c.innerHTML=(map[curView]||vDashboard)();
   c.scrollTop=0;
   if(curView==='water'){
