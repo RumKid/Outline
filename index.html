@@ -1589,9 +1589,59 @@ const S = {
 /* ================================================================
    DAILY SCORE
    ================================================================ */
+function calcStreakForDate(habit, dateStr) {
+  let n = 0;
+  let curr = new Date(dateStr + 'T12:00:00'); // Use noon to avoid timezone shift issues
+  while (true) {
+    const ds = curr.toISOString().split('T')[0];
+    if (habit.logs && habit.logs.includes(ds)) {
+      n++;
+      curr.setDate(curr.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return n;
+}
+
+function calcSleepScore(mins) {
+  if (!mins || mins <= 0) return 0;
+  if (mins >= 420 && mins <= 480) return 1.0; // 7-8 hours (ideal)
+  if (mins >= 360 && mins < 420) return 0.85 + ((mins - 360) / 60) * 0.15; // 6-7 hours
+  if (mins > 480 && mins <= 540) return 0.85 + ((540 - mins) / 60) * 0.15; // 8-9 hours
+  if (mins >= 300 && mins < 360) return 0.50 + ((mins - 300) / 60) * 0.35; // 5-6 hours
+  if (mins > 540 && mins <= 600) return 0.50 + ((600 - mins) / 60) * 0.35; // 9-10 hours
+  if (mins < 300) return (mins / 300) * 0.5; // < 5 hours
+  if (mins > 600) {
+    if (mins >= 840) return 0; // > 14 hours (oversleeping)
+    return 0.5 * (1 - (mins - 600) / 240); // 10-14 hours falloff
+  }
+  return 0;
+}
+
 function calcScoreForDate(d){
-  const dayTasks=S.tasks().filter(t=>t.date===d);
-  let taskS = 1;
+  const dayTasks = S.tasks().filter(t => t.date === d);
+  const habits = S.habits();
+  const checkedHabits = habits.filter(h => h.logs && h.logs.includes(d));
+  const waterMl = S.waterMap()[d] || 0;
+  const sl = S.sleepMap()[d] || null;
+  const sleepMins = sl ? sl.mins : 0;
+  const studyMins = S.sessions().filter(s => s.date === d).reduce((sum, s) => sum + s.mins, 0);
+
+  // 1. Edge Case: Empty Day (no data logged)
+  const isEmptyDay = (
+    dayTasks.length === 0 &&
+    waterMl === 0 &&
+    !sl &&
+    studyMins === 0 &&
+    checkedHabits.length === 0
+  );
+  if (isEmptyDay) {
+    return 15;
+  }
+
+  // 2. Task Scoring with Ambition Penalty
+  let taskS = 0.3; // default if no tasks planned
   if (dayTasks.length > 0) {
     const weights = { high: 5, medium: 3, low: 1 };
     let totalWeight = 0;
@@ -1607,14 +1657,70 @@ function calcScoreForDate(d){
         earnedWeight += (t.done ? 1 : 0) * w;
       }
     });
-    taskS = totalWeight === 0 ? 1 : earnedWeight / totalWeight;
+
+    const baseTaskScore = totalWeight === 0 ? 0.3 : (earnedWeight / totalWeight);
+    let ambitionMultiplier = 1.0;
+    if (totalWeight < 5) {
+      ambitionMultiplier = 0.5;
+    } else if (totalWeight > 15) {
+      ambitionMultiplier = 1.1;
+    }
+    taskS = baseTaskScore * ambitionMultiplier;
   }
-  const habits=S.habits();
-  const habitS=habits.length===0?1:habits.filter(h=>h.logs.includes(d)).length/habits.length;
-  const waterS=clamp((S.waterMap()[d]||0)/3500,0,1);
-  const sl=S.sleepMap()[d]||null;
-  const sleepS=sl?clamp(sl.mins/420,0,1):0;
-  return Math.round(taskS*30+habitS*20+waterS*25+sleepS*25);
+
+  // 3. Sleep Scoring with Sweet-Spot + Penalties
+  const sleepS = calcSleepScore(sleepMins);
+
+  // 4. Habit Scoring with Streak Multiplier
+  let habitS = 0.4; // default if no habits exist
+  if (habits.length > 0) {
+    const baseHabitS = checkedHabits.length / habits.length;
+    let avgMultiplier = 1.0;
+    if (checkedHabits.length > 0) {
+      let sumMultiplier = 0;
+      checkedHabits.forEach(h => {
+        const streak = calcStreakForDate(h, d);
+        let mult = 1.0;
+        if (streak >= 15) mult = 1.3;
+        else if (streak >= 8) mult = 1.2;
+        else if (streak >= 3) mult = 1.1;
+        sumMultiplier += mult;
+      });
+      avgMultiplier = sumMultiplier / checkedHabits.length;
+    }
+    habitS = Math.min(1.0, baseHabitS * avgMultiplier);
+  }
+
+  // 5. Study Sessions Scoring
+  const studyS = studyMins === 0 ? 0.5 : Math.min(1.0, studyMins / 90);
+
+  // 6. Water Intake Scoring
+  const waterS = waterMl === 0 ? 0.3 : Math.min(1.0, waterMl / 3500);
+
+  // 7. Weekly Context Adjustment
+  const dayOfWeek = new Date(d + 'T12:00:00').getDay();
+  const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+  
+  const wTasks  = isWeekend ? 10 : 30;
+  const wSleep  = isWeekend ? 35 : 25;
+  const wHabits = isWeekend ? 30 : 20;
+  const wStudy  = 15;
+  const wWater  = 10;
+
+  // 8. Aggregation
+  let rawScore = (taskS * wTasks) + (sleepS * wSleep) + (habitS * wHabits) + (studyS * wStudy) + (waterS * wWater);
+
+  // Severe dehydration penalty
+  if (waterMl < 1500) {
+    rawScore *= 0.7;
+  }
+
+  // Study bonus
+  if (studyMins > 120) {
+    rawScore += 5;
+  }
+
+  return Math.max(10, Math.min(100, Math.round(rawScore)));
 }
 function calcScore(){
   return calcScoreForDate(today());
