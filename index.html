@@ -1466,16 +1466,22 @@ const S = {
 
   sessions(){ return this.g('pvp_sessions')||[]; },
   activeSession(){ return this.g('pvp_active'); },
-  startSession(){ this.s('pvp_active',{start:new Date().toISOString()}); },
-  stopSession(){
+  startSession(){ 
+    this.s('pvp_active',{start:new Date().toISOString()}); 
+    localStorage.setItem('pvp_last_tick', String(Date.now()));
+  },
+  stopSession(endTimeMs){
     const a=this.activeSession(); if(!a) return;
+    const end = endTimeMs ? new Date(endTimeMs) : new Date();
     const MAX_SESSION_MINS = 240; // 4 hour cap
-    let mins=Math.round((Date.now()-new Date(a.start).getTime())/60000);
+    let mins=Math.round((end.getTime()-new Date(a.start).getTime())/60000);
     if(mins > MAX_SESSION_MINS) mins = MAX_SESSION_MINS;
     if(mins < 1) mins = 1;
     const ss=this.sessions();
-    ss.push({id:uid(),date:today(),start:a.start,end:new Date().toISOString(),mins});
+    const sessionDate = a.start.split('T')[0];
+    ss.push({id:uid(),date:sessionDate,start:a.start,end:end.toISOString(),mins});
     this.s('pvp_sessions',ss); this.s('pvp_active',null);
+    localStorage.removeItem('pvp_last_tick');
   },
   delSession(id){ this.s('pvp_sessions', this.sessions().filter(s=>s.id!==id)); },
   todayStudyMins(){
@@ -2931,6 +2937,17 @@ document.addEventListener('keydown',e=>{
 function recoverStaleSession() {
   const a = S.activeSession();
   if (!a) return;
+
+  const lastTick = Number(localStorage.getItem('pvp_last_tick'));
+  if (lastTick) {
+    const gap = Date.now() - lastTick;
+    if (gap > 180000) { // more than 3 minutes gap
+      console.log(`Recovered stale session retrospectively using heartbeat tick (${Math.round(gap/1000)}s gap)`);
+      S.stopSession(lastTick);
+      return;
+    }
+  }
+
   const MAX_SESSION_MINS = 240; // 4 hour cap
   const elapsedMins = Math.round((Date.now() - new Date(a.start).getTime()) / 60000);
   if (elapsedMins > MAX_SESSION_MINS) {
@@ -2941,6 +2958,7 @@ function recoverStaleSession() {
     ss.push({id:uid(), date:sessionDate, start:a.start, end:new Date().toISOString(), mins});
     S.s('pvp_sessions', ss);
     S.s('pvp_active', null);
+    localStorage.removeItem('pvp_last_tick');
     console.log(`Recovered stale session (${elapsedMins}min elapsed, capped to ${mins}min)`);
   }
 }
@@ -3004,15 +3022,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Fires when the laptop lid closes, system sleeps, or the user
-  // switches away from the tab (page becomes hidden).
+  // Check heartbeat on visibility change to catch sleep/wake cycles instantly.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && S.activeSession()) {
-      S.stopSession();
-      clearInterval(timerIv);
-      timerIv = null;
+    if (document.visibilityState === 'visible' && S.activeSession()) {
+      const lastTick = Number(localStorage.getItem('pvp_last_tick'));
+      if (lastTick) {
+        const gap = Date.now() - lastTick;
+        if (gap > 180000) { // more than 3 minutes gap
+          console.log(`Study timer gap detected on wake (${Math.round(gap/1000)}s). Retrospectively stopping session.`);
+          S.stopSession(lastTick);
+          if (curView === 'study') {
+            clearInterval(timerIv);
+            timerIv = null;
+            refreshView();
+          }
+          updateScore();
+        }
+      }
     }
   });
+
+  // Global background heartbeat tick for the study timer.
+  // Updates the last tick timestamp every 10 seconds. If a large gap is detected (e.g. sleep/freeze),
+  // stops the session retrospectively at the last heartbeat timestamp.
+  setInterval(() => {
+    const a = S.activeSession();
+    if (!a) return;
+    
+    const now = Date.now();
+    const lastTick = Number(localStorage.getItem('pvp_last_tick') || now);
+    const gap = now - lastTick;
+    
+    if (gap > 180000) { // 3 minutes gap
+      console.log(`Study timer gap detected via heartbeat (${Math.round(gap/1000)}s). Retrospectively stopping session.`);
+      S.stopSession(lastTick);
+      if (curView === 'study') {
+        clearInterval(timerIv);
+        timerIv = null;
+        refreshView();
+      }
+      updateScore();
+    } else {
+      localStorage.setItem('pvp_last_tick', String(now));
+    }
+  }, 10000);
 });
 </script>
 </body>
