@@ -2576,6 +2576,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   setInterval(updateScore, 30000);
+
+  /* ── AUTO-STOP TIMER ON TAB CLOSE / LAPTOP SLEEP ─────────────── */
+  // Fires when the tab or browser window is closed.
+  window.addEventListener('beforeunload', () => {
+    if (S.activeSession()) {
+      S.stopSession();
+    }
+  });
+
+  // Fires when the laptop lid closes, system sleeps, or the user
+  // switches away from the tab (page becomes hidden).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && S.activeSession()) {
+      S.stopSession();
+      clearInterval(timerIv);
+      timerIv = null;
+    }
+  });
 });
 </script>
 </body>
