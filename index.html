@@ -614,6 +614,33 @@
     @media (max-width: 800px) {
       .ideas-board { grid-template-columns: 1fr; }
     }
+
+    /* ── LOCK SCREEN ──────────────────────────────────────────── */
+    .lock-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 70vh; gap: 0; }
+    .lock-card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 24px; padding: 48px 44px 40px; width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 0; position: relative; overflow: hidden; box-shadow: 0 40px 80px rgba(0,0,0,0.6); }
+    .lock-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, #3f3f46, rgba(255,255,255,0.6), #3f3f46); }
+    .lock-icon-wrap { width: 72px; height: 72px; border-radius: 50%; background: var(--bg-elevated); border: 1px solid var(--border-default); display: flex; align-items: center; justify-content: center; margin-bottom: 24px; animation: lock-float 3s ease-in-out infinite; }
+    .lock-icon-wrap svg { width: 34px; height: 34px; }
+    @keyframes lock-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+    .lock-title { font-family: 'Outfit', sans-serif; font-size: 22px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.4px; text-align: center; }
+    .lock-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 30px; text-align: center; line-height: 1.5; }
+    .lock-input-wrap { position: relative; width: 100%; margin-bottom: 12px; }
+    .lock-input { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: var(--r-btn); padding: 12px 42px 12px 16px; width: 100%; color: var(--text-primary); font-family: inherit; font-size: 14px; outline: none; transition: border-color var(--t); letter-spacing: 0.05em; }
+    .lock-input:focus { border-color: rgba(255,255,255,0.4); }
+    .lock-eye { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; transition: color var(--t); }
+    .lock-eye:hover { color: var(--text-primary); }
+    .lock-btn { width: 100%; padding: 13px; background: var(--text-primary); color: #000; border: none; border-radius: var(--r-btn); font-family: 'Outfit', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; transition: var(--t); margin-top: 4px; letter-spacing: 0.3px; }
+    .lock-btn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,255,255,0.12); }
+    .lock-btn:active { transform: translateY(0); }
+    .lock-error { font-size: 12.5px; color: var(--danger); min-height: 18px; margin-top: 2px; margin-bottom: 6px; text-align: center; }
+    .lock-confirm-wrap { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+    .lock-hint { font-size: 11.5px; color: var(--text-muted); text-align: center; margin-top: 14px; line-height: 1.6; }
+    .lock-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); background: var(--bg-elevated); border: 1px solid var(--border-subtle); padding: 4px 10px; border-radius: 20px; margin-top: 16px; }
+    @keyframes lock-shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
+    .lock-shake { animation: lock-shake 0.4s ease; }
+    /* Lock button in page headers */
+    .lock-page-btn { background: none; border: 1px solid var(--border-default); color: var(--text-muted); border-radius: var(--r-btn); padding: 6px 12px; font-size: 12px; cursor: pointer; transition: var(--t); display: inline-flex; align-items: center; gap: 6px; font-family: inherit; }
+    .lock-page-btn:hover { color: var(--text-primary); border-color: var(--border-hover); background: var(--bg-elevated); }
   </style>
 </head>
 <body>
@@ -776,6 +803,146 @@ function lastWeek() {
     return d.toISOString().split('T')[0];
   });
 }
+
+/* ================================================================
+   AUTH — AES-GCM ENCRYPTION ENGINE (SubtleCrypto / PBKDF2)
+   ================================================================ */
+const Auth = (() => {
+  const SALT_KEY    = 'pvp_enc_salt';
+  const VERIFY_KEY  = 'pvp_enc_verify';
+  const VERIFY_MSG  = 'outline-verified';
+  let _cryptoKey    = null; // lives in memory only
+
+  // ── helpers ────────────────────────────────────────────────────
+  function b64(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  }
+  function unb64(s) {
+    return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  }
+
+  async function deriveKey(password, salt) {
+    const enc = new TextEncoder();
+    const rawKey = await crypto.subtle.importKey(
+      'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      rawKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  async function aesEncrypt(key, obj) {
+    const iv  = crypto.getRandomValues(new Uint8Array(12));
+    const enc = new TextEncoder();
+    const ct  = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      enc.encode(JSON.stringify(obj))
+    );
+    return { iv: b64(iv), data: b64(ct) };
+  }
+
+  async function aesDecrypt(key, payload) {
+    const iv = unb64(payload.iv);
+    const ct = unb64(payload.data);
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+    return JSON.parse(new TextDecoder().decode(pt));
+  }
+
+  // ── public API ─────────────────────────────────────────────────
+  return {
+    hasPassword() {
+      return !!localStorage.getItem(VERIFY_KEY);
+    },
+    isUnlocked() {
+      return _cryptoKey !== null;
+    },
+    lock() {
+      _cryptoKey = null;
+    },
+
+    // Set a new password (first-time or change). Encrypts a
+    // known verification token so we can test it on unlock.
+    async setPassword(password, existingPlainJournal, existingPlainIdeas) {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      localStorage.setItem(SALT_KEY, b64(salt));
+      const key = await deriveKey(password, salt);
+      _cryptoKey = key;
+
+      // Store verification token
+      const verifyPayload = await aesEncrypt(key, VERIFY_MSG);
+      localStorage.setItem(VERIFY_KEY, JSON.stringify(verifyPayload));
+
+      // Encrypt any existing plaintext data right now
+      if (existingPlainJournal && Object.keys(existingPlainJournal).length > 0) {
+        const enc = await aesEncrypt(key, existingPlainJournal);
+        localStorage.setItem('pvp_journal', JSON.stringify({ _enc: true, ...enc }));
+        S._cache['pvp_journal'] = null;
+        await DM.saveJournal();
+      }
+      if (existingPlainIdeas && existingPlainIdeas.length > 0) {
+        const enc = await aesEncrypt(key, existingPlainIdeas);
+        localStorage.setItem('pvp_ideas', JSON.stringify({ _enc: true, ...enc }));
+        S._cache['pvp_ideas'] = null;
+        await DM.save();
+      }
+    },
+
+    // Try to unlock with the given password. Returns true/false.
+    async unlock(password) {
+      const saltRaw = localStorage.getItem(SALT_KEY);
+      const verifyRaw = localStorage.getItem(VERIFY_KEY);
+      if (!saltRaw || !verifyRaw) return false;
+      try {
+        const salt = unb64(saltRaw);
+        const key  = await deriveKey(password, salt);
+        const payload = JSON.parse(verifyRaw);
+        const result  = await aesDecrypt(key, payload);
+        if (result !== VERIFY_MSG) return false;
+        _cryptoKey = key;
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    // Encrypt any JS value. Returns { _enc:true, iv, data }.
+    async encrypt(obj) {
+      if (!_cryptoKey) throw new Error('Not unlocked');
+      const p = await aesEncrypt(_cryptoKey, obj);
+      return { _enc: true, ...p };
+    },
+
+    // Decrypt a payload { _enc, iv, data } → original JS value.
+    async decrypt(payload) {
+      if (!_cryptoKey) throw new Error('Not unlocked');
+      return aesDecrypt(_cryptoKey, payload);
+    },
+
+    // Read + decrypt a localStorage key. Returns null if locked or missing.
+    async readEncrypted(lsKey) {
+      if (!_cryptoKey) return null;
+      try {
+        const raw = localStorage.getItem(lsKey);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed._enc) return parsed; // unencrypted legacy
+        return await this.decrypt(parsed);
+      } catch { return null; }
+    },
+
+    // Write + encrypt a value to a localStorage key.
+    async writeEncrypted(lsKey, obj) {
+      if (!_cryptoKey) throw new Error('Not unlocked');
+      const enc = await this.encrypt(obj);
+      localStorage.setItem(lsKey, JSON.stringify(enc));
+    }
+  };
+})();
 
 function getStatsForDates(dates) {
   let scoreSum = 0, scoreCount = 0;
@@ -995,7 +1162,7 @@ const DM = {
         sleep:          S.g('pvp_sleep')           || {},
         intentions:     S.g('pvp_intentions')      || {},
         dailySummaries: S.g('pvp_daily_summaries') || {},
-        ideas:          S.g('pvp_ideas')           || [],
+        ideas:          (() => { const r = localStorage.getItem('pvp_ideas'); return r ? JSON.parse(r) : []; })(),
         savedAt:        new Date().toISOString(),
       };
       const fh = await this.dirHandle.getFileHandle(this.fileName, { create: true });
@@ -1017,6 +1184,7 @@ const DM = {
       const fh = await this.dirHandle.getFileHandle(this.journalFileName);
       const file = await fh.getFile();
       const txt = await file.text();
+      // Returns the raw object (may be { _enc, iv, data } or plain {})
       return JSON.parse(txt);
     } catch { return null; }
   },
@@ -1031,7 +1199,9 @@ const DM = {
   async _doSaveJournal() {
     if (!this.dirHandle) return;
     try {
-      const data = S.g('pvp_journal') || {};
+      // Write whatever is in localStorage (may be encrypted blob or plain)
+      const raw = localStorage.getItem('pvp_journal');
+      const data = raw ? JSON.parse(raw) : {};
       const fh = await this.dirHandle.getFileHandle(this.journalFileName, { create: true });
       const wr = await fh.createWritable();
       await wr.write(JSON.stringify(data, null, 2));
@@ -1046,7 +1216,10 @@ const DM = {
     await this.applyToStore(existing);
     const existingJournal = await this.loadJournal();
     if (existingJournal) {
-      S.sSilent('pvp_journal', existingJournal);
+      // Store the raw blob (encrypted or plain) — decryption happens at read time
+      S._cache['pvp_journal'] = null;
+      localStorage.setItem('pvp_journal', JSON.stringify(existingJournal));
+      S._cache['pvp_journal_dec'] = undefined; // invalidate decrypted cache
     }
   },
 
@@ -1062,7 +1235,12 @@ const DM = {
     if (data.sleep)          S.s('pvp_sleep',           data.sleep);
     if (data.intentions)     S.s('pvp_intentions',      data.intentions);
     if (data.dailySummaries) S.s('pvp_daily_summaries', data.dailySummaries);
-    if (data.ideas)          S.s('pvp_ideas',           data.ideas);
+    // ideas may be an encrypted blob — store raw, don't decrypt here
+    if (data.ideas !== undefined) {
+      localStorage.setItem('pvp_ideas', JSON.stringify(data.ideas));
+      S._cache['pvp_ideas'] = null;
+      S._cache['pvp_ideas_dec'] = undefined;
+    }
     compileDailySummaries();
   },
 
@@ -1307,31 +1485,86 @@ const S = {
   todayIntention() { return this.intentions()[today()] || ''; },
   setIntention(val) { const i = this.intentions(); i[today()] = val; this.s('pvp_intentions', i); },
 
-  journalMap() { return this.g('pvp_journal') || {}; },
-  saveJournal(map) {
-    this._cache['pvp_journal'] = map;
-    localStorage.setItem('pvp_journal', JSON.stringify(map));
+  // ── Journal (encrypted when password is set) ──────────────────
+  journalMap() {
+    // Synchronous read: returns decrypted map if unlocked,
+    // empty object if locked (lock screen guards access anyway).
+    if (!Auth.hasPassword()) {
+      return this.g('pvp_journal') || {};
+    }
+    if (!Auth.isUnlocked()) return {};
+    // Attempt sync read of already-cached decrypted value
+    if (this._cache['pvp_journal_dec'] !== undefined) {
+      return this._cache['pvp_journal_dec'] || {};
+    }
+    return {}; // caller must use journalMapAsync
+  },
+  async journalMapAsync() {
+    if (!Auth.hasPassword()) return this.g('pvp_journal') || {};
+    if (!Auth.isUnlocked()) return {};
+    if (this._cache['pvp_journal_dec'] !== undefined) {
+      return this._cache['pvp_journal_dec'] || {};
+    }
+    const map = await Auth.readEncrypted('pvp_journal');
+    this._cache['pvp_journal_dec'] = map || {};
+    return this._cache['pvp_journal_dec'];
+  },
+  async saveJournal(map) {
+    this._cache['pvp_journal_dec'] = map;
+    if (Auth.hasPassword() && Auth.isUnlocked()) {
+      await Auth.writeEncrypted('pvp_journal', map);
+      this._cache['pvp_journal'] = null; // invalidate raw cache
+    } else {
+      this._cache['pvp_journal'] = map;
+      localStorage.setItem('pvp_journal', JSON.stringify(map));
+    }
     DM.saveJournal();
   },
 
-  ideas() { return this.g('pvp_ideas') || []; },
-  addIdea(title, desc) {
-    const list = this.ideas();
+  // ── Ideas (encrypted when password is set) ────────────────────
+  ideas() {
+    if (!Auth.hasPassword()) return this.g('pvp_ideas') || [];
+    if (!Auth.isUnlocked()) return [];
+    if (this._cache['pvp_ideas_dec'] !== undefined) {
+      return this._cache['pvp_ideas_dec'] || [];
+    }
+    return [];
+  },
+  async ideasAsync() {
+    if (!Auth.hasPassword()) return this.g('pvp_ideas') || [];
+    if (!Auth.isUnlocked()) return [];
+    if (this._cache['pvp_ideas_dec'] !== undefined) {
+      return this._cache['pvp_ideas_dec'] || [];
+    }
+    const list = await Auth.readEncrypted('pvp_ideas');
+    this._cache['pvp_ideas_dec'] = list || [];
+    return this._cache['pvp_ideas_dec'];
+  },
+  async _saveIdeas(list) {
+    this._cache['pvp_ideas_dec'] = list;
+    if (Auth.hasPassword() && Auth.isUnlocked()) {
+      await Auth.writeEncrypted('pvp_ideas', list);
+      this._cache['pvp_ideas'] = null;
+    } else {
+      this._cache['pvp_ideas'] = list;
+      localStorage.setItem('pvp_ideas', JSON.stringify(list));
+    }
+    DM.save();
+  },
+  async addIdea(title, desc) {
+    const list = await this.ideasAsync();
     list.push({ id: uid(), title, desc, column: 'inbox' });
-    this.s('pvp_ideas', list);
+    await this._saveIdeas(list);
   },
-  updateIdea(id, fields) {
-    const list = this.ideas().map(idea => {
-      if (idea.id === id) {
-        return { ...idea, ...fields };
-      }
-      return idea;
-    });
-    this.s('pvp_ideas', list);
+  async updateIdea(id, fields) {
+    const list = (await this.ideasAsync()).map(idea =>
+      idea.id === id ? { ...idea, ...fields } : idea
+    );
+    await this._saveIdeas(list);
   },
-  delIdea(id) {
-    const list = this.ideas().filter(idea => idea.id !== id);
-    this.s('pvp_ideas', list);
+  async delIdea(id) {
+    const list = (await this.ideasAsync()).filter(idea => idea.id !== id);
+    await this._saveIdeas(list);
   },
 };
 
@@ -2173,13 +2406,12 @@ function fmtFullDate(dStr) {
 
 function selectJournalOption(metric, value) {
   const d = journalSelectedDate;
-  const map = S.journalMap();
-  if (!map[d]) {
-    map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
-  }
-  map[d][metric] = value;
-  S.saveJournal(map);
-  refreshView();
+  S.journalMapAsync().then(map => {
+    if (!map[d]) map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
+    map[d][metric] = value;
+    S.saveJournal(map);
+    refreshView();
+  });
 }
 
 function updateJournalText(text) {
@@ -2189,16 +2421,14 @@ function updateJournalText(text) {
   if (wcEl) wcEl.textContent = wordCount;
   if (ccEl) ccEl.textContent = charCount;
   if (stEl) stEl.textContent = 'Saving changes...';
-  
+
   clearTimeout(journalDebounceTimer);
-  journalDebounceTimer = setTimeout(() => {
+  journalDebounceTimer = setTimeout(async () => {
     const d = journalSelectedDate;
-    const map = S.journalMap();
-    if (!map[d]) {
-      map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
-    }
+    const map = await S.journalMapAsync();
+    if (!map[d]) map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
     map[d].text = text;
-    S.saveJournal(map);
+    await S.saveJournal(map);
     if (stEl) stEl.textContent = 'All changes saved locally';
   }, 500);
 }
@@ -2210,9 +2440,9 @@ function navigateJournalDate(offset) {
   refreshView();
 }
 
-function vJournal() {
+async function vJournal() {
   const d = journalSelectedDate;
-  const map = S.journalMap();
+  const map = await S.journalMapAsync();
   const entry = map[d] || { mood: '', energy: '', focus: '', physical: '', text: '' };
   
   const moodOptions = [
@@ -2255,9 +2485,15 @@ function vJournal() {
   const charCount = entry.text ? entry.text.length : 0;
 
   return `<div class="view-enter">
-    <div class="page-header">
-      <h1 class="page-title">Daily Journal</h1>
-      <p class="page-sub">Reflect on your day, log your metrics, and capture your thoughts.</p>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;">
+      <div>
+        <h1 class="page-title">Daily Journal</h1>
+        <p class="page-sub">Reflect on your day, log your metrics, and capture your thoughts.</p>
+      </div>
+      <button class="lock-page-btn" onclick="lockAndNavigate('journal')" title="Lock Journal">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Lock
+      </button>
     </div>
 
     <div class="journal-date-bar">
@@ -2318,12 +2554,12 @@ function toggleAddIdeaForm(show) {
   }
 }
 
-function doAddIdea() {
+async function doAddIdea() {
   const titleIn = $('ai-title'), descIn = $('ai-desc');
   const title = titleIn?.value?.trim();
   if (!title) return;
   const desc = descIn?.value?.trim() || '';
-  S.addIdea(title, desc);
+  await S.addIdea(title, desc);
   refreshView();
 }
 
@@ -2335,31 +2571,31 @@ function toggleEditIdea(id) {
   }
 }
 
-function doSaveIdeaEdit(id) {
+async function doSaveIdeaEdit(id) {
   const tIn = $(`edit-title-${id}`), dIn = $(`edit-desc-${id}`);
   const title = tIn?.value?.trim();
   if (!title) return;
   const desc = dIn?.value?.trim() || '';
-  S.updateIdea(id, { title, desc });
+  await S.updateIdea(id, { title, desc });
   toggleEditIdea(null);
 }
 
-function doMoveIdea(id, dir) {
-  const ideas = S.ideas();
+async function doMoveIdea(id, dir) {
+  const ideas = await S.ideasAsync();
   const idea = ideas.find(i => i.id === id);
   if (!idea) return;
   const colOrder = ['inbox', 'refining', 'archived'];
   const curIdx = colOrder.indexOf(idea.column);
   let nextIdx = curIdx + dir;
   if (nextIdx >= 0 && nextIdx < colOrder.length) {
-    S.updateIdea(id, { column: colOrder[nextIdx] });
+    await S.updateIdea(id, { column: colOrder[nextIdx] });
     refreshView();
   }
 }
 
-function doDelIdea(id) {
+async function doDelIdea(id) {
   if (confirm('Delete this idea card?')) {
-    S.delIdea(id);
+    await S.delIdea(id);
     refreshView();
   }
 }
@@ -2392,18 +2628,24 @@ function ideaCardHTML(i) {
   </div>`;
 }
 
-function vIdeas() {
-  const ideas = S.ideas();
+async function vIdeas() {
+  const ideas = await S.ideasAsync();
   const columns = [
-    { id: 'inbox', title: 'Inbox', emoji: '📥', list: ideas.filter(i => i.column === 'inbox') },
+    { id: 'inbox',    title: 'Inbox',    emoji: '📥', list: ideas.filter(i => i.column === 'inbox') },
     { id: 'refining', title: 'Refining', emoji: '⚙️', list: ideas.filter(i => i.column === 'refining') },
     { id: 'archived', title: 'Archived', emoji: '📁', list: ideas.filter(i => i.column === 'archived') }
   ];
 
   return `<div class="view-enter">
-    <div class="page-header">
-      <h1 class="page-title">Ideas Board</h1>
-      <p class="page-sub">Brainstorm, refine, and archive your projects and thoughts.</p>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;">
+      <div>
+        <h1 class="page-title">Ideas Board</h1>
+        <p class="page-sub">Brainstorm, refine, and archive your projects and thoughts.</p>
+      </div>
+      <button class="lock-page-btn" onclick="lockAndNavigate('ideas')" title="Lock Ideas">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Lock
+      </button>
     </div>
 
     <div class="ideas-board">
@@ -2451,12 +2693,144 @@ let curView=null;
 function navigate(v){ if(curView!==v){curView=v;renderView(v);} }
 function refreshView(){ renderView(curView); }
 
-function renderView(v){
+/* ── LOCK SCREEN ─────────────────────────────────────────────── */
+const LOCK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+
+function lockAndNavigate(view) {
+  Auth.lock();
+  S._cache['pvp_journal_dec'] = undefined;
+  S._cache['pvp_ideas_dec']   = undefined;
+  curView = view; // stay on same view so refreshView works correctly
+  renderView(view);
+}
+
+function vLockScreen(section) {
+  const label = section === 'journal' ? 'Daily Journal' : 'Ideas Board';
+  const isFirstTime = !Auth.hasPassword();
+  return `<div class="lock-screen">
+    <div class="lock-card" id="lock-card">
+      <div class="lock-icon-wrap">${LOCK_SVG}</div>
+      <div class="lock-title">${isFirstTime ? 'Protect ' + label : label + ' is Locked'}</div>
+      <div class="lock-sub">${isFirstTime
+        ? 'Set a master password to encrypt your Journal &amp; Ideas. This protects both sections.'
+        : 'Enter your password to access this section.'}</div>
+
+      ${isFirstTime ? `
+        <div class="lock-confirm-wrap">
+          <div class="lock-input-wrap">
+            <input class="lock-input" type="password" id="lock-pw1" placeholder="Create password…" autocomplete="new-password"
+              onkeydown="if(event.key==='Enter')$('lock-pw2').focus()">
+            <button class="lock-eye" onclick="toggleLockEye('lock-pw1',this)" tabindex="-1">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <div class="lock-input-wrap">
+            <input class="lock-input" type="password" id="lock-pw2" placeholder="Confirm password…" autocomplete="new-password"
+              onkeydown="if(event.key==='Enter')doSetPassword('${section}')">
+            <button class="lock-eye" onclick="toggleLockEye('lock-pw2',this)" tabindex="-1">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <div class="lock-error" id="lock-err"></div>
+          <button class="lock-btn" onclick="doSetPassword('${section}')">🔒 Set Password &amp; Unlock</button>
+        </div>
+        <p class="lock-hint">⚠️ If you forget your password, your Journal &amp; Ideas data cannot be recovered.</p>
+      ` : `
+        <div class="lock-input-wrap" style="width:100%">
+          <input class="lock-input" type="password" id="lock-pw1" placeholder="Enter password…" autocomplete="current-password"
+            onkeydown="if(event.key==='Enter')doUnlock('${section}')">
+          <button class="lock-eye" onclick="toggleLockEye('lock-pw1',this)" tabindex="-1">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="lock-error" id="lock-err"></div>
+        <button class="lock-btn" id="lock-btn" onclick="doUnlock('${section}')">Unlock</button>
+      `}
+      <span class="lock-badge">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        AES-256 encrypted
+      </span>
+    </div>
+  </div>`;
+}
+
+function toggleLockEye(inputId, btn) {
+  const inp = $(inputId);
+  if (!inp) return;
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    btn.style.color = 'var(--text-primary)';
+  } else {
+    inp.type = 'password';
+    btn.style.color = '';
+  }
+}
+
+async function doSetPassword(section) {
+  const pw1 = $('lock-pw1')?.value || '';
+  const pw2 = $('lock-pw2')?.value || '';
+  const errEl = $('lock-err');
+  if (pw1.length < 6) { if(errEl) errEl.textContent = 'Password must be at least 6 characters.'; shakeLockCard(); return; }
+  if (pw1 !== pw2)    { if(errEl) errEl.textContent = 'Passwords do not match.'; shakeLockCard(); return; }
+  if (errEl) errEl.textContent = '';
+  // Grab any existing plaintext data before encrypting
+  const existingJournal = S.g('pvp_journal') || {};
+  const existingIdeas   = S.g('pvp_ideas')   || [];
+  await Auth.setPassword(pw1, existingJournal, existingIdeas);
+  renderView(section);
+}
+
+async function doUnlock(section) {
+  const pw = $('lock-pw1')?.value || '';
+  const errEl = $('lock-err');
+  const btn   = $('lock-btn');
+  if (btn) { btn.textContent = 'Unlocking…'; btn.disabled = true; }
+  const ok = await Auth.unlock(pw);
+  if (ok) {
+    S._cache['pvp_journal_dec'] = undefined;
+    S._cache['pvp_ideas_dec']   = undefined;
+    renderView(section);
+  } else {
+    if (errEl) errEl.textContent = 'Wrong password. Try again.';
+    if (btn) { btn.textContent = 'Unlock'; btn.disabled = false; }
+    shakeLockCard();
+    if ($('lock-pw1')) { $('lock-pw1').value = ''; $('lock-pw1').focus(); }
+  }
+}
+
+function shakeLockCard() {
+  const card = $('lock-card');
+  if (!card) return;
+  card.classList.remove('lock-shake');
+  void card.offsetWidth; // reflow to restart animation
+  card.classList.add('lock-shake');
+}
+
+async function renderView(v){
   curView=v||'dashboard';
   if(timerIv&&v!=='study'){clearInterval(timerIv);timerIv=null;}
   const c=$('content'); if(!c) return;
-  const map={dashboard:vDashboard,tasks:vTasks,habits:vHabits,water:vWater,study:vStudy,sleep:vSleep,journal:vJournal,ideas:vIdeas};
-  c.innerHTML=(map[curView]||vDashboard)();
+
+  // Gate journal and ideas behind lock screen
+  if ((curView==='journal' || curView==='ideas') && !Auth.isUnlocked()) {
+    c.innerHTML = vLockScreen(curView);
+    c.scrollTop = 0;
+    document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===curView));
+    setTimeout(() => $('lock-pw1')?.focus(), 80);
+    return;
+  }
+
+  // Async-capable view map
+  const syncMap  = {dashboard:vDashboard, tasks:vTasks, habits:vHabits, water:vWater, study:vStudy, sleep:vSleep};
+  const asyncMap = {journal:vJournal, ideas:vIdeas};
+
+  let html;
+  if (asyncMap[curView]) {
+    html = await asyncMap[curView]();
+  } else {
+    html = (syncMap[curView] || vDashboard)();
+  }
+  c.innerHTML = html;
   c.scrollTop=0;
   if(curView==='water'){
     const l7=last7(),wMap=S.waterMap();
@@ -2478,6 +2852,7 @@ function renderView(v){
   }
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===curView));
 }
+
 
 /* ================================================================
    DATE
