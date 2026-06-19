@@ -364,6 +364,16 @@
     .water-btn-reset:hover  { color:var(--danger); border-color:rgba(239,68,68,0.3); }
     .water-btn-custom { background:var(--bg-elevated); border:1px solid var(--border-default); color:var(--text-primary); }
     .water-btn-custom:hover { background:var(--border-default); border-color:var(--border-hover); }
+    .water-btn-remove { background:none; border:1px solid rgba(239,68,68,0.25); color:var(--danger); }
+    .water-btn-remove:hover { background:rgba(239,68,68,0.08); border-color:rgba(239,68,68,0.5); }
+    /* ── SESSION LOG ─────────────────────────────────────────────── */
+    .session-log { display:flex; flex-direction:column; gap:6px; margin-top:14px; }
+    .session-row { display:flex; align-items:center; gap:10px; background:var(--bg-elevated); border:1px solid var(--border-subtle); border-radius:var(--r-btn); padding:8px 12px; transition:var(--t); }
+    .session-row:hover { border-color:var(--border-default); }
+    .session-row-time { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-secondary); flex:1; }
+    .session-row-dur { font-size:12px; font-weight:700; color:var(--text-primary); margin-right:6px; }
+    .session-del-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:13px; padding:2px 5px; border-radius:4px; transition:var(--t); line-height:1; }
+    .session-del-btn:hover { color:var(--danger); background:rgba(239,68,68,0.08); }
     .stats-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:18px; }
     .stat-box { background:var(--bg-elevated); padding:12px; border-radius:8px; text-align:center; border:1px solid var(--border-default); }
     .stat-box-label { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); }
@@ -1451,6 +1461,7 @@ const S = {
   waterMap(){ return this.g('pvp_water')||{}; },
   waterToday(){ return this.waterMap()[today()]||0; },
   addWater(ml){ const m=this.waterMap(); m[today()]=(m[today()]||0)+ml; this.s('pvp_water',m); },
+  removeWater(ml){ const m=this.waterMap(); m[today()]=Math.max(0,(m[today()]||0)-ml); this.s('pvp_water',m); },
   resetWater(){ const m=this.waterMap(); m[today()]=0; this.s('pvp_water',m); },
 
   sessions(){ return this.g('pvp_sessions')||[]; },
@@ -1466,6 +1477,7 @@ const S = {
     ss.push({id:uid(),date:today(),start:a.start,end:new Date().toISOString(),mins});
     this.s('pvp_sessions',ss); this.s('pvp_active',null);
   },
+  delSession(id){ this.s('pvp_sessions', this.sessions().filter(s=>s.id!==id)); },
   todayStudyMins(){
     const t=today();
     const completed = this.sessions().filter(s=>s.date===t).reduce((s,x)=>s+x.mins,0);
@@ -2130,8 +2142,10 @@ function vWater(){
         <button class="water-tap" onclick="doAddWater()">💧</button>
         <div class="water-tap-label">+250ml per tap</div>
         <div class="water-actions">
-          <button class="water-btn-sm water-btn-reset" onclick="doResetWater()">Reset today</button>
+          <button class="water-btn-sm water-btn-remove" onclick="doRemoveWater()">−250ml</button>
           <button class="water-btn-sm water-btn-custom" onclick="doCustomWater()">Custom +</button>
+          <button class="water-btn-sm water-btn-remove" onclick="doCustomRemoveWater()">Custom −</button>
+          <button class="water-btn-sm water-btn-reset" onclick="doResetWater()">Reset today</button>
         </div>
       </div></div>
       <div class="card">
@@ -2146,6 +2160,8 @@ function vWater(){
   </div>`;
 }
 function doAddWater(){ S.addWater(250); updateScore(); refreshView(); }
+function doRemoveWater(){ S.removeWater(250); updateScore(); refreshView(); }
+function doCustomRemoveWater(){ const v=parseInt(prompt('Remove how many ml?')); if(!isNaN(v)&&v>0){ S.removeWater(v); updateScore(); refreshView(); } }
 function doResetWater(){ if(confirm('Reset today\'s water?')){ S.resetWater(); updateScore(); refreshView(); } }
 function doCustomWater(){ const v=parseInt(prompt('Amount in ml:')); if(!isNaN(v)&&v>0){ S.addWater(v); updateScore(); refreshView(); } }
 
@@ -2199,6 +2215,26 @@ function vStudy(){
       </div>
 
       <div class="card" style="padding:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div class="sec-label" style="margin-bottom:0;">Today's Sessions</div>
+          <span style="font-size:11px;color:var(--text-muted);">click ✕ to remove</span>
+        </div>
+        ${(() => {
+          const todaySess = ss.filter(x => x.date === today()).sort((a,b) => new Date(b.start)-new Date(a.start));
+          if (todaySess.length === 0) return `<div style="text-align:center;padding:18px 0;color:var(--text-muted);font-size:13px;">No sessions logged today</div>`;
+          return `<div class="session-log">${todaySess.map(x => {
+            const startFmt = new Date(x.start).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+            const endFmt   = new Date(x.end).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+            return `<div class="session-row">
+              <span class="session-row-time">${startFmt} → ${endFmt}</span>
+              <span class="session-row-dur">${fmtDuration(x.mins)}</span>
+              <button class="session-del-btn" onclick="doDelSession('${x.id}')" title="Remove session">✕</button>
+            </div>`;
+          }).join('')}</div>`;
+        })()}
+      </div>
+
+      <div class="card" style="padding:20px;">
         <div class="sec-label">60-Day History (hours)</div>
         <div class="chart-box-lg" style="height:220px;"><canvas id="study-chart-60"></canvas></div>
       </div>
@@ -2220,6 +2256,10 @@ function doToggleTimer(){
   if(S.activeSession()){S.stopSession();clearInterval(timerIv);timerIv=null;}
   else S.startSession();
   refreshView(); updateScore();
+}
+function doDelSession(id){
+  if(S.activeSession()) return; // don't delete while timer is running
+  S.delSession(id); updateScore(); refreshView();
 }
 
 /* ── COUNTDOWN TIMER ── */
