@@ -625,6 +625,24 @@
       .ideas-board { grid-template-columns: 1fr; }
     }
 
+    /* Drag and Drop styles */
+    .task-container.dragging, .subtask-item.dragging, .idea-card.dragging {
+      opacity: 0.4;
+      border-style: dashed !important;
+      border-color: var(--text-muted) !important;
+    }
+    .ideas-column.drag-over {
+      background: var(--bg-elevated) !important;
+      border-color: var(--text-secondary) !important;
+      border-style: dashed !important;
+    }
+    .task-container, .subtask-item, .idea-card {
+      cursor: grab;
+    }
+    .task-container:active, .subtask-item:active, .idea-card:active {
+      cursor: grabbing;
+    }
+
     /* ── LOCK SCREEN ──────────────────────────────────────────── */
     .lock-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 70vh; gap: 0; }
     .lock-card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 24px; padding: 48px 44px 40px; width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 0; position: relative; overflow: hidden; box-shadow: 0 40px 80px rgba(0,0,0,0.6); }
@@ -2150,9 +2168,9 @@ function taskHTML(t){
   let subtasksHTML = '';
   if (totalSubs > 0) {
     subtasksHTML = `
-    <div class="subtasks-list" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">
+    <div class="subtasks-list" data-parent-id="${t.id}" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">
       ${subtasks.map(s => `
-        <div class="subtask-item ${s.done ? 'done' : ''}" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-${s.id}">
+        <div class="subtask-item ${s.done ? 'done' : ''}" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-${s.id}" draggable="true" data-type="subtask" data-subtask-id="${s.id}" data-parent-id="${t.id}">
           <div class="task-cb ${s.done ? 'checked' : ''}" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask('${t.id}', '${s.id}')">${s.done ? '✓' : ''}</div>
           <span class="task-title-txt" style="${s.done ? 'text-decoration:line-through;color:var(--text-muted);' : ''};flex:1;">${escH(s.title)}</span>
           <button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color='var(--danger)'" onmouseout="this.style.color='var(--text-muted)'" onclick="doDelSubtask('${t.id}', '${s.id}')">✕</button>
@@ -2162,7 +2180,7 @@ function taskHTML(t){
   }
 
   return `
-  <div class="task-container" id="tc-${t.id}">
+  <div class="task-container" id="tc-${t.id}" draggable="true" data-type="task" data-task-id="${t.id}">
     <div class="task-item${t.done?' done':''}" id="ti-${t.id}">
       <div class="task-cb${t.done?' checked':''}" onclick="doToggleTask('${t.id}')">${t.done?'✓':''}</div>
       <div class="task-dot dot-${t.priority||'medium'}"></div>
@@ -2189,6 +2207,47 @@ function doAddTask(){
 }
 function doToggleTask(id){ S.toggleTask(id); refreshView(); updateScore(); }
 function doDelTask(id){ S.delTask(id); refreshView(); updateScore(); }
+
+function reorderTasks(draggedId, targetId, after) {
+  const allTasks = S.tasks();
+  const draggedTask = allTasks.find(t => t.id === draggedId);
+  if (!draggedTask) return;
+
+  const remaining = allTasks.filter(t => t.id !== draggedId);
+  const targetIdx = remaining.findIndex(t => t.id === targetId);
+
+  if (targetIdx !== -1) {
+    const insertIdx = after ? targetIdx + 1 : targetIdx;
+    remaining.splice(insertIdx, 0, draggedTask);
+  } else {
+    remaining.push(draggedTask);
+  }
+
+  S.s('pvp_tasks', remaining);
+}
+
+function reorderSubtasks(parentId, draggedSubId, targetSubId, after) {
+  const allTasks = S.tasks();
+  const parentTask = allTasks.find(t => t.id === parentId);
+  if (!parentTask || !parentTask.subtasks) return;
+
+  const subtasks = parentTask.subtasks;
+  const draggedSub = subtasks.find(s => s.id === draggedSubId);
+  if (!draggedSub) return;
+
+  const remaining = subtasks.filter(s => s.id !== draggedSubId);
+  const targetIdx = remaining.findIndex(s => s.id === targetSubId);
+
+  if (targetIdx !== -1) {
+    const insertIdx = after ? targetIdx + 1 : targetIdx;
+    remaining.splice(insertIdx, 0, draggedSub);
+  } else {
+    remaining.push(draggedSub);
+  }
+
+  parentTask.subtasks = remaining;
+  S.s('pvp_tasks', allTasks);
+}
 
 /* ── HABITS ── */
 function vHabits(){
@@ -2732,17 +2791,24 @@ async function doSaveIdeaEdit(id) {
   toggleEditIdea(null);
 }
 
-async function doMoveIdea(id, dir) {
-  const ideas = await S.ideasAsync();
-  const idea = ideas.find(i => i.id === id);
-  if (!idea) return;
-  const colOrder = ['inbox', 'refining', 'archived'];
-  const curIdx = colOrder.indexOf(idea.column);
-  let nextIdx = curIdx + dir;
-  if (nextIdx >= 0 && nextIdx < colOrder.length) {
-    await S.updateIdea(id, { column: colOrder[nextIdx] });
-    refreshView();
+async function reorderIdeas(draggedId, targetColumnId, targetSiblingId, after) {
+  const allIdeas = await S.ideasAsync();
+  const draggedIdea = allIdeas.find(i => i.id === draggedId);
+  if (!draggedIdea) return;
+
+  draggedIdea.column = targetColumnId;
+
+  const remaining = allIdeas.filter(i => i.id !== draggedId);
+  const targetIdx = remaining.findIndex(i => i.id === targetSiblingId);
+
+  if (targetIdx !== -1) {
+    const insertIdx = after ? targetIdx + 1 : targetIdx;
+    remaining.splice(insertIdx, 0, draggedIdea);
+  } else {
+    remaining.push(draggedIdea);
   }
+
+  await S._saveIdeas(remaining);
 }
 
 async function doDelIdea(id) {
@@ -2766,15 +2832,10 @@ function ideaCardHTML(i) {
     </div>`;
   }
 
-  const showLeft = i.column !== 'inbox';
-  const showRight = i.column !== 'archived';
-
-  return `<div class="idea-card" onclick="toggleEditIdea('${i.id}')">
+  return `<div class="idea-card" onclick="toggleEditIdea('${i.id}')" draggable="true" data-type="idea" data-idea-id="${i.id}">
     <div class="idea-title">${escH(i.title)}</div>
     ${i.desc ? `<div class="idea-desc">${escH(i.desc)}</div>` : ''}
     <div class="idea-actions" onclick="event.stopPropagation()">
-      ${showLeft ? `<button class="idea-btn" onclick="doMoveIdea('${i.id}', -1)" title="Move Left">◀</button>` : ''}
-      ${showRight ? `<button class="idea-btn" onclick="doMoveIdea('${i.id}', 1)" title="Move Right">▶</button>` : ''}
       <button class="idea-btn del" style="margin-left:auto;" onclick="doDelIdea('${i.id}')" title="Delete">✕</button>
     </div>
   </div>`;
@@ -2802,7 +2863,7 @@ async function vIdeas() {
 
     <div class="ideas-board">
       ${columns.map(col => `
-        <div class="ideas-column">
+        <div class="ideas-column" data-column-id="${col.id}">
           <div class="ideas-column-header">
             <span class="ideas-column-title">${col.emoji} &nbsp;${col.title}</span>
             <span class="ideas-column-count">${col.list.length}</span>
@@ -2824,7 +2885,7 @@ async function vIdeas() {
             </div>
           ` : ''}
 
-          <div style="display:flex;flex-direction:column;gap:10px;overflow-y:auto;max-height:600px;padding-right:2px;">
+          <div style="display:flex;flex-direction:column;gap:10px;overflow-y:auto;max-height:600px;padding-right:2px;min-height:250px;">
             ${col.list.length === 0 && col.id !== 'inbox' ? `
               <div style="text-align:center;padding:24px 10px;color:var(--text-muted);font-size:12px;border:1px dashed var(--border-default);border-radius:var(--r-btn);">
                 Empty column
@@ -3172,6 +3233,119 @@ document.addEventListener('DOMContentLoaded', async () => {
       localStorage.setItem('pvp_last_tick', String(now));
     }
   }, 10000);
+
+  /* ── DRAG AND DROP EVENT DELEGATION ──────────────────────────── */
+  let activeDragType = null;
+  let activeDragId = null;
+  let activeParentId = null; // for subtasks
+
+  document.addEventListener('dragstart', (e) => {
+    const target = e.target;
+    // Check if dragging subtask or task or idea
+    const subtaskItem = target.closest('[data-type="subtask"]');
+    const taskContainer = target.closest('[data-type="task"]');
+    const ideaCard = target.closest('[data-type="idea"]');
+
+    if (subtaskItem) {
+      activeDragType = 'subtask';
+      activeDragId = subtaskItem.dataset.subtaskId;
+      activeParentId = subtaskItem.dataset.parentId;
+      subtaskItem.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', activeDragId);
+      e.dataTransfer.effectAllowed = 'move';
+    } else if (taskContainer) {
+      activeDragType = 'task';
+      activeDragId = taskContainer.dataset.taskId;
+      taskContainer.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', activeDragId);
+      e.dataTransfer.effectAllowed = 'move';
+    } else if (ideaCard) {
+      activeDragType = 'idea';
+      activeDragId = ideaCard.dataset.ideaId;
+      ideaCard.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', activeDragId);
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  });
+
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (!activeDragType) return;
+
+    if (activeDragType === 'task') {
+      const taskContainer = e.target.closest('[data-type="task"]');
+      if (taskContainer && taskContainer.dataset.taskId !== activeDragId) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+    } else if (activeDragType === 'subtask') {
+      const subtaskItem = e.target.closest('[data-type="subtask"]');
+      if (subtaskItem && subtaskItem.dataset.parentId === activeParentId && subtaskItem.dataset.subtaskId !== activeDragId) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+    } else if (activeDragType === 'idea') {
+      const column = e.target.closest('.ideas-column');
+      if (column) {
+        column.classList.add('drag-over');
+        e.dataTransfer.dropEffect = 'move';
+      }
+    }
+  });
+
+  document.addEventListener('dragleave', (e) => {
+    if (activeDragType === 'idea') {
+      const column = e.target.closest('.ideas-column');
+      if (column && !column.contains(e.relatedTarget)) {
+        column.classList.remove('drag-over');
+      }
+    }
+  });
+
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (!activeDragType) return;
+
+    if (activeDragType === 'task') {
+      const taskContainer = e.target.closest('[data-type="task"]');
+      if (taskContainer) {
+        const targetId = taskContainer.dataset.taskId;
+        const rect = taskContainer.getBoundingClientRect();
+        const after = (e.clientY - rect.top) > (rect.height / 2);
+        reorderTasks(activeDragId, targetId, after);
+        refreshView();
+      }
+    } else if (activeDragType === 'subtask') {
+      const subtaskItem = e.target.closest('[data-type="subtask"]');
+      if (subtaskItem && subtaskItem.dataset.parentId === activeParentId) {
+        const targetSubId = subtaskItem.dataset.subtaskId;
+        const rect = subtaskItem.getBoundingClientRect();
+        const after = (e.clientY - rect.top) > (rect.height / 2);
+        reorderSubtasks(activeParentId, activeDragId, targetSubId, after);
+        refreshView();
+      }
+    } else if (activeDragType === 'idea') {
+      const column = e.target.closest('.ideas-column');
+      if (column) {
+        const columnId = column.dataset.columnId;
+        const ideaCard = e.target.closest('[data-type="idea"]');
+        const targetSiblingId = ideaCard ? ideaCard.dataset.ideaId : null;
+        let after = false;
+        if (ideaCard) {
+          const rect = ideaCard.getBoundingClientRect();
+          after = (e.clientY - rect.top) > (rect.height / 2);
+        }
+        await reorderIdeas(activeDragId, columnId, targetSiblingId, after);
+        refreshView();
+      }
+    }
+  });
+
+  document.addEventListener('dragend', (e) => {
+    document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+    document.querySelectorAll('.ideas-column').forEach(el => el.classList.remove('drag-over'));
+    activeDragType = null;
+    activeDragId = null;
+    activeParentId = null;
+  });
 });
 </script>
 </body>
