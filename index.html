@@ -2690,7 +2690,11 @@ async function vIdeas() {
    ROUTER
    ================================================================ */
 let curView=null;
-function navigate(v){ if(curView!==v){curView=v;renderView(v);} }
+function navigate(v){
+  // Always re-render journal/ideas (lock state may have changed)
+  const alwaysRender = v==='journal' || v==='ideas';
+  if(alwaysRender || curView!==v){ curView=v; renderView(v); }
+}
 function refreshView(){ renderView(curView); }
 
 /* ── LOCK SCREEN ─────────────────────────────────────────────── */
