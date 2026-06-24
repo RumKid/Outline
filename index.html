@@ -941,6 +941,54 @@ const Auth = (() => {
         S._cache['pvp_ideas'] = null;
         await DM.save();
       }
+
+      // Encrypt task and subtask titles in localStorage/cache
+      const tasks = S.tasks();
+      let tasksModified = false;
+      const encryptedTasks = await Promise.all(tasks.map(async t => {
+        let taskCopy = { ...t };
+        if (typeof taskCopy.title === 'string') {
+          const enc = await aesEncrypt(key, taskCopy.title);
+          taskCopy.title = { _enc: true, ...enc };
+          tasksModified = true;
+        }
+        if (taskCopy.subtasks) {
+          taskCopy.subtasks = await Promise.all(taskCopy.subtasks.map(async s => {
+            let subCopy = { ...s };
+            if (typeof subCopy.title === 'string') {
+              const enc = await aesEncrypt(key, subCopy.title);
+              subCopy.title = { _enc: true, ...enc };
+              tasksModified = true;
+            }
+            return subCopy;
+          }));
+        }
+        return taskCopy;
+      }));
+      if (tasksModified) {
+        localStorage.setItem('pvp_tasks', JSON.stringify(encryptedTasks));
+        S._cache['pvp_tasks'] = encryptedTasks;
+        await DM.save();
+      }
+
+      // Encrypt daily intentions in localStorage/cache
+      const intentions = S.intentions();
+      let intentionsModified = false;
+      const encryptedIntentions = {};
+      for (const d of Object.keys(intentions)) {
+        if (typeof intentions[d] === 'string') {
+          const enc = await aesEncrypt(key, intentions[d]);
+          encryptedIntentions[d] = { _enc: true, ...enc };
+          intentionsModified = true;
+        } else {
+          encryptedIntentions[d] = intentions[d];
+        }
+      }
+      if (intentionsModified) {
+        localStorage.setItem('pvp_intentions', JSON.stringify(encryptedIntentions));
+        S._cache['pvp_intentions'] = encryptedIntentions;
+        await DM.save();
+      }
     },
 
     // Try to unlock with the given password. Returns true/false.
@@ -991,6 +1039,29 @@ const Auth = (() => {
       if (!_cryptoKey) throw new Error('Not unlocked');
       const enc = await this.encrypt(obj);
       localStorage.setItem(lsKey, JSON.stringify(enc));
+    },
+
+    // Encrypt a field value asynchronously if unlocked.
+    async encryptField(val) {
+      if (typeof val !== 'string') return val;
+      if (!this.hasPassword() || !_cryptoKey) return val;
+      return this.encrypt(val);
+    },
+
+    // Decrypt a field value asynchronously if unlocked.
+    async decryptField(val, placeholder) {
+      if (typeof val === 'string') return val;
+      if (val && val._enc) {
+        if (_cryptoKey) {
+          try {
+            return await this.decrypt(val);
+          } catch {
+            return placeholder || '🔒 [Error Decrypting]';
+          }
+        }
+        return placeholder || '🔒 [Locked]';
+      }
+      return val;
     }
   };
 })();
@@ -1433,7 +1504,12 @@ const S = {
     }
     return updated;
   },
-  addTask(t){ const a=this.tasks(); a.push(t); this.s('pvp_tasks',a); },
+  async addTask(t){
+    t.title = await Auth.encryptField(t.title);
+    const a=this.tasks();
+    a.push(t);
+    this.s('pvp_tasks',a);
+  },
   toggleTask(id){
     this.s('pvp_tasks', this.tasks().map(t => {
       if (t.id === id) {
@@ -1445,11 +1521,12 @@ const S = {
     }));
   },
   delTask(id){ this.s('pvp_tasks', this.tasks().filter(t=>t.id!==id)); },
-  addSubtask(parentId, title) {
+  async addSubtask(parentId, title) {
+    const encryptedTitle = await Auth.encryptField(title);
     this.s('pvp_tasks', this.tasks().map(t => {
       if (t.id === parentId) {
         const subs = t.subtasks || [];
-        subs.push({ id: uid(), title, done: false });
+        subs.push({ id: uid(), title: encryptedTitle, done: false });
         return { ...t, subtasks: subs, done: false };
       }
       return t;
@@ -1576,7 +1653,16 @@ const S = {
 
   intentions() { return this.g('pvp_intentions') || {}; },
   todayIntention() { return this.intentions()[today()] || ''; },
-  setIntention(val) { const i = this.intentions(); i[today()] = val; this.s('pvp_intentions', i); },
+  async todayIntentionDecrypted() {
+    const raw = this.todayIntention();
+    if (!raw) return '';
+    return Auth.decryptField(raw, '🔒 [Locked Intention]');
+  },
+  async setIntention(val) {
+    const i = this.intentions();
+    i[today()] = await Auth.encryptField(val);
+    this.s('pvp_intentions', i);
+  },
 
   // ── Journal (encrypted when password is set) ──────────────────
   journalMap() {
@@ -1809,6 +1895,18 @@ function updateScore(){
   if(s===100) triggerConfetti();
 }
 
+function areIntentionsEqual(a, b) {
+  const normA = a || '';
+  const normB = b || '';
+  if (normA === normB) return true;
+  if (typeof normA === 'object' && typeof normB === 'object') {
+    if (normA._enc && normB._enc) {
+      return normA.iv === normB.iv && normA.data === normB.data;
+    }
+  }
+  return false;
+}
+
 function compileDailySummaries() {
   const summaries = S.g('pvp_daily_summaries') || {};
   const datesSet = new Set();
@@ -1857,7 +1955,7 @@ function compileDailySummaries() {
         existing.study_minutes !== studyMins ||
         existing.habits_completed !== habitsCompleted ||
         existing.habits_total !== habitsTotal ||
-        existing.intention !== intention) {
+        !areIntentionsEqual(existing.intention, intention)) {
       
       summaries[d] = {
         date: d,
@@ -2006,8 +2104,11 @@ function bottleSVG(pct){
    VIEWS
    ================================================================ */
 function greeting(){ const h=new Date().getHours(); return h<12?'morning':h<17?'afternoon':'evening'; }
-
-function vDashboard(){
+async function doSaveIntention(val) {
+  await S.setIntention(val);
+  updateScore();
+}
+async function vDashboard(){
   const todayTasks=S.tasks().filter(t=>t.date===today());
   const doneTasks=todayTasks.filter(t=>t.done).length;
   const taskPct=todayTasks.length>0?doneTasks/todayTasks.length:0;
@@ -2030,7 +2131,7 @@ function vDashboard(){
 
     <div class="intention-card">
       <div class="intention-label">TODAY'S INTENTION</div>
-      <input type="text" id="intention-input" class="intention-input" placeholder="What is your one main focus for today?" value="${escH(S.todayIntention())}" oninput="S.setIntention(this.value)">
+      <input type="text" id="intention-input" class="intention-input" placeholder="What is your one main focus for today?" value="${escH(await S.todayIntentionDecrypted())}" onchange="doSaveIntention(this.value)">
     </div>
 
     <div class="dash-grid">
@@ -2135,10 +2236,11 @@ function vDashboard(){
 function dashAddWater(){ S.addWater(250); updateScore(); refreshView(); }
 
 /* ── TASKS ── */
-function vTasks(){
+async function vTasks(){
   const todayTasks=S.tasks().filter(t=>t.date===today());
   const done=todayTasks.filter(t=>t.done).length;
   const pct=todayTasks.length>0?Math.round(done/todayTasks.length*100):0;
+  const taskItemsHTML = (await Promise.all(todayTasks.map(t => taskHTML(t)))).join('');
   return `<div class="view-enter">
     <div class="page-header"><h1 class="page-title">Tasks</h1><p class="page-sub">Today's focus list</p></div>
     <div class="tasks-layout">
@@ -2155,7 +2257,7 @@ function vTasks(){
         <div class="task-list">
           ${todayTasks.length===0
             ?`<div class="empty"><div class="empty-icon">✅</div><div class="empty-txt">No tasks yet. Add something above.</div></div>`
-            :todayTasks.map(t=>taskHTML(t)).join('')}
+            :taskItemsHTML}
         </div>
         ${todayTasks.length>0?`
           <div style="margin-top:20px;">
@@ -2192,11 +2294,11 @@ function toggleAddSubForm(id) {
   }
 }
 
-function doAddSubtask(parentId) {
+async function doAddSubtask(parentId) {
   const inp = $(`subin-${parentId}`);
   const title = inp?.value?.trim();
   if (!title) return;
-  S.addSubtask(parentId, title);
+  await S.addSubtask(parentId, title);
   inp.value = '';
   refreshView();
   updateScore();
@@ -2215,37 +2317,39 @@ function doDelSubtask(parentId, subtaskId) {
   updateScore();
 }
 
-function taskHTML(t){
+async function taskHTML(t){
   var subtasks=t.subtasks||[];
   var doneSubs=subtasks.filter(function(s){return s.done;}).length;
   var totalSubs=subtasks.length;
   var fractionText=totalSubs>0?'<span class="task-fraction" style="font-size:11px;color:var(--text-secondary);font-weight:600;margin-left:5px;">('+(doneSubs)+'/('+(totalSubs)+')</span>':'' ;
   var isFormOpen=activeSubForms[t.id];
-  var subItems=subtasks.map(function(s){
+  const decryptedTitle = await Auth.decryptField(t.title, "🔒 [Locked Task]");
+  var subItems=await Promise.all(subtasks.map(async function(s){
+    const decSubTitle = await Auth.decryptField(s.title, "🔒 [Locked Subtask]");
     return '<div class="subtask-item '+(s.done?'done':'')+'" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-'+s.id+'" draggable="true" data-type="subtask" data-subtask-id="'+s.id+'" data-parent-id="'+t.id+'">'
       +'<div class="task-cb '+(s.done?'checked':'')+'" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask(\''+(t.id)+'\',\''+(s.id)+'\')">'+( s.done?'&#10003;':'')+'</div>'
-      +'<span class="task-title-txt" style="'+(s.done?'text-decoration:line-through;color:var(--text-muted);':'')+';flex:1;">'+escH(s.title)+'</span>'
+      +'<span class="task-title-txt" style="'+(s.done?'text-decoration:line-through;color:var(--text-muted);':'')+';flex:1;">'+escH(decSubTitle)+'</span>'
       +'<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelSubtask(\''+(t.id)+'\',\''+(s.id)+'\')">&#10005;</button>'
       +'</div>';
-  }).join('');
+  }));
   var subtasksHTML=totalSubs>0
-    ?'<div class="subtasks-list" data-parent-id="'+t.id+'" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">'+subItems+'</div>'
+    ?'<div class="subtasks-list" data-parent-id="'+t.id+'" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">'+subItems.join('')+'</div>'
     :'';
   var addForm='<div class="add-subtask-form-container '+(isFormOpen?'':'hidden')+'" id="asf-'+t.id+'" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="subin-'+t.id+'" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddSubtask(\''+(t.id)+'\')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddSubtask(\''+(t.id)+'\')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleAddSubForm(\''+(t.id)+'\')">Cancel</button></div></div>';
   var inner='<div class="task-item'+(t.done?' done':'')+'" id="ti-'+t.id+'">'
     +'<div class="task-cb'+(t.done?' checked':'')+'" onclick="doToggleTask(\''+(t.id)+'\')">'+( t.done?'&#10003;':'')+'</div>'
     +'<div class="task-dot dot-'+(t.priority||'medium')+'"></div>'
-    +'<span class="task-title-txt" style="flex:1;">'+escH(t.title)+fractionText+'</span>'
+    +'<span class="task-title-txt" style="flex:1;">'+escH(decryptedTitle)+fractionText+'</span>'
     +'<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleAddSubForm(\''+(t.id)+'\')" title="Add subtask">+</button>'
     +'<button class="task-del" onclick="doDelTask(\''+(t.id)+'\')">&#10005;</button>'
     +'</div>';
   return '<div class="task-container" id="tc-'+t.id+'" draggable="true" data-type="task" data-task-id="'+t.id+'">'+inner+subtasksHTML+addForm+'</div>';
 }
 
-function doAddTask(){
+async function doAddTask(){
   const inp=$('task-in'),pri=$('task-pri');
   const title=inp?.value?.trim(); if(!title) return;
-  S.addTask({id:uid(),title,priority:pri.value,done:false,date:today()});
+  await S.addTask({id:uid(),title,priority:pri.value,done:false,date:today()});
   inp.value=''; refreshView(); updateScore();
 }
 function doToggleTask(id){ S.toggleTask(id); refreshView(); updateScore(); }
@@ -3118,14 +3222,16 @@ async function renderView(v){
   }
 
   // Async-capable view map
-  const syncMap  = {dashboard:vDashboard, tasks:vTasks, habits:vHabits, water:vWater, study:vStudy, sleep:vSleep};
-  const asyncMap = {journal:vJournal, ideas:vIdeas};
+  const syncMap  = {habits:vHabits, water:vWater, study:vStudy, sleep:vSleep};
+  const asyncMap = {journal:vJournal, ideas:vIdeas, dashboard:vDashboard, tasks:vTasks};
 
   let html;
   if (asyncMap[curView]) {
     html = await asyncMap[curView]();
+  } else if (syncMap[curView]) {
+    html = syncMap[curView]();
   } else {
-    html = (syncMap[curView] || vDashboard)();
+    html = await vDashboard();
   }
   c.innerHTML = html;
   c.scrollTop=0;
