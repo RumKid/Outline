@@ -1279,7 +1279,16 @@ const DM = {
     if (!data) return;
     S.clearCache();
     if (data.tasks)          S.s('pvp_tasks',           data.tasks);
-    if (data.habits)         S.s('pvp_habits',          data.habits);
+    if (data.habits) {
+      const defaults = ['Workout', 'Read', 'Study', 'Journal'];
+      const migrated = data.habits.map(h => {
+        if (defaults.includes(h.name) && !h.isDefault) {
+          h.isDefault = true;
+        }
+        return h;
+      });
+      S.s('pvp_habits', migrated);
+    }
     if (data.water)          S.s('pvp_water',           data.water);
     if (data.sessions)       S.s('pvp_sessions',        data.sessions);
     if (data.active)         S.s('pvp_active',          data.active);
@@ -1488,7 +1497,7 @@ const S = {
         return item;
       });
       if (modified) {
-        this.s('pvp_habits', h);
+        this.sSilent('pvp_habits', h);
       }
     }
     return h;
