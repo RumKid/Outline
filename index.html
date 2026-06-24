@@ -644,7 +644,7 @@
     /* Drop indicator line */
     #drop-indicator {
       display: none;
-      position: fixed;
+      position: absolute;
       left: 0; right: 0;
       height: 2px;
       background: linear-gradient(90deg, transparent 0%, rgba(167,139,250,0.9) 15%, rgba(167,139,250,1) 50%, rgba(167,139,250,0.9) 85%, transparent 100%);
@@ -652,7 +652,6 @@
       z-index: 9999;
       pointer-events: none;
       box-shadow: 0 0 8px rgba(167,139,250,0.6);
-      transition: top 60ms ease;
     }
     #drop-indicator::before, #drop-indicator::after {
       content: '';
@@ -3272,11 +3271,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function showIndicator(refEl, after) {
     const rect = refEl.getBoundingClientRect();
-    const y = after ? rect.bottom : rect.top;
+    const y = (after ? rect.bottom : rect.top) + window.scrollY;
     dropIndicator.style.display = 'block';
-    dropIndicator.style.top  = (y - 1 + window.scrollY) + 'px';
-    dropIndicator.style.left = rect.left + 'px';
-    dropIndicator.style.right = (window.innerWidth - rect.right) + 'px';
+    dropIndicator.style.top  = (y - 1) + 'px';
+    dropIndicator.style.left = (rect.left + window.scrollX) + 'px';
+    dropIndicator.style.right = 'auto';
+    dropIndicator.style.width = rect.width + 'px';
   }
 
   function hideIndicator() {
@@ -3293,15 +3293,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       activeDragType = 'subtask';
       activeDragId   = subtaskItem.dataset.subtaskId;
       activeParentId = subtaskItem.dataset.parentId;
-      subtaskItem.classList.add('dragging');
+      // Defer adding the class so the browser can capture the ghost first
+      setTimeout(() => subtaskItem.classList.add('dragging'), 0);
     } else if (taskContainer) {
       activeDragType = 'task';
       activeDragId   = taskContainer.dataset.taskId;
-      taskContainer.classList.add('dragging');
+      setTimeout(() => taskContainer.classList.add('dragging'), 0);
     } else if (ideaCard) {
       activeDragType = 'idea';
       activeDragId   = ideaCard.dataset.ideaId;
-      ideaCard.classList.add('dragging');
+      setTimeout(() => ideaCard.classList.add('dragging'), 0);
     } else {
       e.preventDefault();
       return;
