@@ -1471,12 +1471,25 @@ const S = {
     let h=this.g('pvp_habits');
     if(!h){
       h=[
-        {id:uid(),name:'Workout',icon:'🏋️',color:'#fb923c',logs:[]},
-        {id:uid(),name:'Read',   icon:'📚',color:'#f472b6',logs:[]},
-        {id:uid(),name:'Study',  icon:'✏️', color:'#a78bfa',logs:[]},
-        {id:uid(),name:'Journal',icon:'📓',color:'#34d399',logs:[]},
+        {id:uid(),name:'Workout',icon:'🏋️',color:'#fb923c',logs:[],isDefault:true},
+        {id:uid(),name:'Read',   icon:'📚',color:'#f472b6',logs:[],isDefault:true},
+        {id:uid(),name:'Study',  icon:'✏️', color:'#a78bfa',logs:[],isDefault:true},
+        {id:uid(),name:'Journal',icon:'📓',color:'#34d399',logs:[],isDefault:true},
       ];
       this.s('pvp_habits',h);
+    } else {
+      let modified = false;
+      const defaults = ['Workout', 'Read', 'Study', 'Journal'];
+      h = h.map(item => {
+        if (defaults.includes(item.name) && !item.isDefault) {
+          item.isDefault = true;
+          modified = true;
+        }
+        return item;
+      });
+      if (modified) {
+        this.s('pvp_habits', h);
+      }
     }
     return h;
   },
@@ -1490,11 +1503,23 @@ const S = {
     }));
   },
   streak(habit){
-    let n=0,d=new Date();
-    while(true){
-      const ds=d.toISOString().split('T')[0];
-      if(habit.logs.includes(ds)){n++;d.setDate(d.getDate()-1);}
-      else break;
+    // Start from today if already logged, otherwise from yesterday,
+    // so we always show the most recent unbroken streak.
+    let d = new Date();
+    const todayStr = d.toISOString().split('T')[0];
+    if (!habit.logs.includes(todayStr)) {
+      // today not yet checked — start counting from yesterday
+      d.setDate(d.getDate() - 1);
+    }
+    let n = 0;
+    while (true) {
+      const ds = d.toISOString().split('T')[0];
+      if (habit.logs.includes(ds)) {
+        n++;
+        d.setDate(d.getDate() - 1);
+      } else {
+        break;
+      }
     }
     return n;
   },
@@ -2182,44 +2207,30 @@ function doDelSubtask(parentId, subtaskId) {
 }
 
 function taskHTML(t){
-  const subtasks = t.subtasks || [];
-  const doneSubs = subtasks.filter(s=>s.done).length;
-  const totalSubs = subtasks.length;
-  const fractionText = totalSubs > 0 ? ` <span class="task-fraction" style="font-size:11px;color:var(--text-secondary);font-weight:600;margin-left:5px;">(${doneSubs}/${totalSubs})</span>` : '';
-  const isFormOpen = activeSubForms[t.id];
-
-  let subtasksHTML = '';
-  if (totalSubs > 0) {
-    subtasksHTML = `
-    <div class="subtasks-list" data-parent-id="${t.id}" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">
-      ${subtasks.map(s => `
-        <div class="subtask-item ${s.done ? 'done' : ''}" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-${s.id}" draggable="true" data-type="subtask" data-subtask-id="${s.id}" data-parent-id="${t.id}">
-          <div class="task-cb ${s.done ? 'checked' : ''}" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask('${t.id}', '${s.id}')">${s.done ? '✓' : ''}</div>
-          <span class="task-title-txt" style="${s.done ? 'text-decoration:line-through;color:var(--text-muted);' : ''};flex:1;">${escH(s.title)}</span>
-          <button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color='var(--danger)'" onmouseout="this.style.color='var(--text-muted)'" onclick="doDelSubtask('${t.id}', '${s.id}')">✕</button>
-        </div>
-      `).join('')}
-    </div>`;
-  }
-
-  return `
-  <div class="task-container" id="tc-${t.id}" draggable="true" data-type="task" data-task-id="${t.id}">
-    <div class="task-item${t.done?' done':''}" id="ti-${t.id}">
-      <div class="task-cb${t.done?' checked':''}" onclick="doToggleTask('${t.id}')">${t.done?'✓':''}</div>
-      <div class="task-dot dot-${t.priority||'medium'}"></div>
-      <span class="task-title-txt" style="flex:1;">${escH(t.title)}${fractionText}</span>
-      <button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleAddSubForm('${t.id}')" title="Add subtask">+</button>
-      <button class="task-del" onclick="doDelTask('${t.id}')">✕</button>
-    </div>
-    ${subtasksHTML}
-    <div class="add-subtask-form-container ${isFormOpen ? '' : 'hidden'}" id="asf-${t.id}" style="margin-left:36px;margin-top:5px;margin-bottom:8px;">
-      <div style="display:flex;gap:6px;">
-        <input type="text" id="subin-${t.id}" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key==='Enter')doAddSubtask('${t.id}')">
-        <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddSubtask('${t.id}')">Add</button>
-        <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleAddSubForm('${t.id}')">Cancel</button>
-      </div>
-    </div>
-  </div>`;
+  var subtasks=t.subtasks||[];
+  var doneSubs=subtasks.filter(function(s){return s.done;}).length;
+  var totalSubs=subtasks.length;
+  var fractionText=totalSubs>0?'<span class="task-fraction" style="font-size:11px;color:var(--text-secondary);font-weight:600;margin-left:5px;">('+(doneSubs)+'/('+(totalSubs)+')</span>':'' ;
+  var isFormOpen=activeSubForms[t.id];
+  var subItems=subtasks.map(function(s){
+    return '<div class="subtask-item '+(s.done?'done':'')+'" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-'+s.id+'" draggable="true" data-type="subtask" data-subtask-id="'+s.id+'" data-parent-id="'+t.id+'">'
+      +'<div class="task-cb '+(s.done?'checked':'')+'" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask(\''+(t.id)+'\',\''+(s.id)+'\')">'+( s.done?'&#10003;':'')+'</div>'
+      +'<span class="task-title-txt" style="'+(s.done?'text-decoration:line-through;color:var(--text-muted);':'')+';flex:1;">'+escH(s.title)+'</span>'
+      +'<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelSubtask(\''+(t.id)+'\',\''+(s.id)+'\')">&#10005;</button>'
+      +'</div>';
+  }).join('');
+  var subtasksHTML=totalSubs>0
+    ?'<div class="subtasks-list" data-parent-id="'+t.id+'" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">'+subItems+'</div>'
+    :'';
+  var addForm='<div class="add-subtask-form-container '+(isFormOpen?'':'hidden')+'" id="asf-'+t.id+'" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="subin-'+t.id+'" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddSubtask(\''+(t.id)+'\')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddSubtask(\''+(t.id)+'\')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleAddSubForm(\''+(t.id)+'\')">Cancel</button></div></div>';
+  var inner='<div class="task-item'+(t.done?' done':'')+'" id="ti-'+t.id+'">'
+    +'<div class="task-cb'+(t.done?' checked':'')+'" onclick="doToggleTask(\''+(t.id)+'\')">'+( t.done?'&#10003;':'')+'</div>'
+    +'<div class="task-dot dot-'+(t.priority||'medium')+'"></div>'
+    +'<span class="task-title-txt" style="flex:1;">'+escH(t.title)+fractionText+'</span>'
+    +'<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleAddSubForm(\''+(t.id)+'\')" title="Add subtask">+</button>'
+    +'<button class="task-del" onclick="doDelTask(\''+(t.id)+'\')">&#10005;</button>'
+    +'</div>';
+  return '<div class="task-container" id="tc-'+t.id+'" draggable="true" data-type="task" data-task-id="'+t.id+'">'+inner+subtasksHTML+addForm+'</div>';
 }
 
 function doAddTask(){
@@ -2292,27 +2303,43 @@ function vHabits(){
 }
 
 function habitHTML(h,week){
-  const done=h.logs.includes(today()),streak=S.streak(h);
-  return `<div class="habit-row">
-    <div class="habit-icon-wrap" style="background:${h.color}22;">${h.icon}</div>
-    <div class="habit-info">
-      <div class="habit-name-txt">${escH(h.name)}</div>
-      <div class="habit-streak-txt">🔥 ${streak} day streak</div>
-    </div>
-    <div class="habit-week-dots">
-      ${week.map(d=>{const on=h.logs.includes(d);return`<div class="wd${on?' on':''}" style="${on?`background:${h.color};color:${h.color};`:''}"></div>`;}).join('')}
-    </div>
-    <button class="habit-check${done?' done':''}" onclick="doToggleHabit('${h.id}')"
-      style="${done?`background:${h.color};border-color:${h.color};box-shadow:0 0 14px ${h.color}55;`:''}">${done?'✓':'○'}</button>
-  </div>`;
+  var done = h.logs.includes(today());
+  var streak = S.streak(h);
+  var canDelete = !h.isDefault;
+  var streakTxt = streak > 0 ? ('🔥 ' + streak + ' day streak') : '\u25cb No streak yet';
+  var delBtn = canDelete
+    ? '<button class="task-del" style="margin-right:6px;font-size:15px;opacity:0.7;" onclick="doDelHabit(\x27' + h.id + '\x27)" title="Delete habit">&#10005;</button>'
+    : '';
+  var weekDots = week.map(function(d){
+    var on = h.logs.includes(d);
+    return '<div class="wd' + (on ? ' on' : '') + '" style="' + (on ? 'background:' + h.color + ';color:' + h.color + ';' : '') + '"></div>';
+  }).join('');
+  var checkStyle = done ? 'background:' + h.color + ';border-color:' + h.color + ';box-shadow:0 0 14px ' + h.color + '55;' : '';
+  return '<div class="habit-row">'
+    + '<div class="habit-icon-wrap" style="background:' + h.color + '22;">' + h.icon + '</div>'
+    + '<div class="habit-info">'
+      + '<div class="habit-name-txt">' + escH(h.name) + '</div>'
+      + '<div class="habit-streak-txt">' + streakTxt + '</div>'
+    + '</div>'
+    + '<div class="habit-week-dots">' + weekDots + '</div>'
+    + delBtn
+    + '<button class="habit-check' + (done ? ' done' : '') + '" onclick="doToggleHabit(\x27' + h.id + '\x27)" style="' + checkStyle + '">'
+    + (done ? '&#10003;' : '&#9675;')
+    + '</button>'
+    + '</div>';
 }
 
 function doToggleHabit(id){ S.toggleHabit(id); refreshView(); updateScore(); }
+function doDelHabit(id){
+  if(!confirm('Delete this habit? All its history will be lost.')) return;
+  S.saveHabits(S.habits().filter(function(h){ return h.id !== id; }));
+  refreshView(); updateScore();
+}
 function doAddHabit(){
   const name=prompt('Habit name:'); if(!name?.trim()) return;
   const icons=['⭐','🏃','📖','🎵','🧘','🌿','💪','🎯','✍️','🎨'],cols=['#fb923c','#f472b6','#a78bfa','#34d399','#38bdf8','#fbbf24'];
   const h=S.habits();
-  h.push({id:uid(),name:name.trim(),icon:icons[h.length%icons.length],color:cols[h.length%cols.length],logs:[]});
+  h.push({id:uid(),name:name.trim(),icon:icons[h.length%icons.length],color:cols[h.length%cols.length],logs:[],isDefault:false});
   S.saveHabits(h); refreshView();
 }
 
@@ -3335,6 +3362,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         el = el.parentElement;
       }
+      // Fallback: hovering the task-list container itself
+      const taskList = e.target.closest('.task-list');
+      if (taskList) {
+        const children = taskList.querySelectorAll('[data-type="task"]');
+        if (children.length > 0) {
+          const lastChild = children[children.length - 1];
+          if (lastChild.dataset.taskId !== activeDragId) {
+            dropTarget = { el: lastChild, after: true };
+            showIndicator(lastChild, true);
+            return;
+          }
+        }
+      }
       hideIndicator();
 
     } else if (activeDragType === 'subtask') {
@@ -3350,6 +3390,19 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
         }
         el = el.parentElement;
+      }
+      // Fallback: hovering the subtasks-list container of the same parent task
+      const subtaskList = e.target.closest(`.subtasks-list[data-parent-id="${activeParentId}"]`);
+      if (subtaskList) {
+        const children = subtaskList.querySelectorAll('[data-type="subtask"]');
+        if (children.length > 0) {
+          const lastChild = children[children.length - 1];
+          if (lastChild.dataset.subtaskId !== activeDragId) {
+            dropTarget = { el: lastChild, after: true };
+            showIndicator(lastChild, true);
+            return;
+          }
+        }
       }
       hideIndicator();
 
@@ -3373,7 +3426,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       // Hovering the column itself (no card under cursor) — drop at end
       dropTarget = { el: null, after: true, columnId: column.dataset.columnId };
-      hideIndicator();
+      hideIndicatorLine();
     }
   });
 
