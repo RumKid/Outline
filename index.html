@@ -625,23 +625,47 @@
       .ideas-board { grid-template-columns: 1fr; }
     }
 
-    /* Drag and Drop styles */
+    /* ── DRAG AND DROP ───────────────────────────────────────────── */
     .task-container.dragging, .subtask-item.dragging, .idea-card.dragging {
-      opacity: 0.4;
-      border-style: dashed !important;
-      border-color: var(--text-muted) !important;
+      opacity: 0.35;
+      pointer-events: none;
     }
     .ideas-column.drag-over {
       background: var(--bg-elevated) !important;
       border-color: var(--text-secondary) !important;
       border-style: dashed !important;
     }
-    .task-container, .subtask-item, .idea-card {
+    .task-container, .subtask-item, .idea-card:not(.editing) {
       cursor: grab;
     }
     .task-container:active, .subtask-item:active, .idea-card:active {
       cursor: grabbing;
     }
+    /* Drop indicator line */
+    #drop-indicator {
+      display: none;
+      position: fixed;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, rgba(167,139,250,0.9) 15%, rgba(167,139,250,1) 50%, rgba(167,139,250,0.9) 85%, transparent 100%);
+      border-radius: 2px;
+      z-index: 9999;
+      pointer-events: none;
+      box-shadow: 0 0 8px rgba(167,139,250,0.6);
+      transition: top 60ms ease;
+    }
+    #drop-indicator::before, #drop-indicator::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(167,139,250,1);
+    }
+    #drop-indicator::before { left: 12px; }
+    #drop-indicator::after  { right: 12px; }
 
     /* ── LOCK SCREEN ──────────────────────────────────────────── */
     .lock-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 70vh; gap: 0; }
@@ -3234,60 +3258,116 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }, 10000);
 
-  /* ── DRAG AND DROP EVENT DELEGATION ──────────────────────────── */
-  let activeDragType = null;
-  let activeDragId = null;
-  let activeParentId = null; // for subtasks
+  /* ── DRAG AND DROP ───────────────────────────────────────── */
+  // Create a persistent drop indicator line element
+  const dropIndicator = document.createElement('div');
+  dropIndicator.id = 'drop-indicator';
+  document.body.appendChild(dropIndicator);
+
+  let activeDragType  = null;
+  let activeDragId    = null;
+  let activeParentId  = null;
+  // Stores the resolved drop target: { el, after }
+  let dropTarget = null;
+
+  function showIndicator(refEl, after) {
+    const rect = refEl.getBoundingClientRect();
+    const y = after ? rect.bottom : rect.top;
+    dropIndicator.style.display = 'block';
+    dropIndicator.style.top  = (y - 1 + window.scrollY) + 'px';
+    dropIndicator.style.left = rect.left + 'px';
+    dropIndicator.style.right = (window.innerWidth - rect.right) + 'px';
+  }
+
+  function hideIndicator() {
+    dropIndicator.style.display = 'none';
+    dropTarget = null;
+  }
 
   document.addEventListener('dragstart', (e) => {
-    const target = e.target;
-    // Check if dragging subtask or task or idea
-    const subtaskItem = target.closest('[data-type="subtask"]');
-    const taskContainer = target.closest('[data-type="task"]');
-    const ideaCard = target.closest('[data-type="idea"]');
+    const subtaskItem   = e.target.closest('[data-type="subtask"]');
+    const taskContainer = e.target.closest('[data-type="task"]');
+    const ideaCard      = e.target.closest('[data-type="idea"]');
 
     if (subtaskItem) {
       activeDragType = 'subtask';
-      activeDragId = subtaskItem.dataset.subtaskId;
+      activeDragId   = subtaskItem.dataset.subtaskId;
       activeParentId = subtaskItem.dataset.parentId;
       subtaskItem.classList.add('dragging');
-      e.dataTransfer.setData('text/plain', activeDragId);
-      e.dataTransfer.effectAllowed = 'move';
     } else if (taskContainer) {
       activeDragType = 'task';
-      activeDragId = taskContainer.dataset.taskId;
+      activeDragId   = taskContainer.dataset.taskId;
       taskContainer.classList.add('dragging');
-      e.dataTransfer.setData('text/plain', activeDragId);
-      e.dataTransfer.effectAllowed = 'move';
     } else if (ideaCard) {
       activeDragType = 'idea';
-      activeDragId = ideaCard.dataset.ideaId;
+      activeDragId   = ideaCard.dataset.ideaId;
       ideaCard.classList.add('dragging');
-      e.dataTransfer.setData('text/plain', activeDragId);
-      e.dataTransfer.effectAllowed = 'move';
+    } else {
+      e.preventDefault();
+      return;
     }
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', activeDragId);
   });
 
   document.addEventListener('dragover', (e) => {
-    e.preventDefault();
     if (!activeDragType) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    dropTarget = null;
 
     if (activeDragType === 'task') {
-      const taskContainer = e.target.closest('[data-type="task"]');
-      if (taskContainer && taskContainer.dataset.taskId !== activeDragId) {
-        e.dataTransfer.dropEffect = 'move';
+      // Walk up from the hovered element to find a task-container
+      let el = e.target;
+      while (el && el !== document.body) {
+        if (el.dataset && el.dataset.type === 'task' && el.dataset.taskId !== activeDragId) {
+          const rect  = el.getBoundingClientRect();
+          const after = (e.clientY - rect.top) > (rect.height / 2);
+          dropTarget  = { el, after };
+          showIndicator(el, after);
+          return;
+        }
+        el = el.parentElement;
       }
+      hideIndicator();
+
     } else if (activeDragType === 'subtask') {
-      const subtaskItem = e.target.closest('[data-type="subtask"]');
-      if (subtaskItem && subtaskItem.dataset.parentId === activeParentId && subtaskItem.dataset.subtaskId !== activeDragId) {
-        e.dataTransfer.dropEffect = 'move';
+      let el = e.target;
+      while (el && el !== document.body) {
+        if (el.dataset && el.dataset.type === 'subtask'
+            && el.dataset.parentId === activeParentId
+            && el.dataset.subtaskId !== activeDragId) {
+          const rect  = el.getBoundingClientRect();
+          const after = (e.clientY - rect.top) > (rect.height / 2);
+          dropTarget  = { el, after };
+          showIndicator(el, after);
+          return;
+        }
+        el = el.parentElement;
       }
+      hideIndicator();
+
     } else if (activeDragType === 'idea') {
       const column = e.target.closest('.ideas-column');
-      if (column) {
-        column.classList.add('drag-over');
-        e.dataTransfer.dropEffect = 'move';
+      if (!column) { hideIndicator(); return; }
+      document.querySelectorAll('.ideas-column').forEach(c => c.classList.remove('drag-over'));
+      column.classList.add('drag-over');
+
+      // Find which idea card we're hovering over
+      let el = e.target;
+      while (el && el !== column) {
+        if (el.dataset && el.dataset.type === 'idea' && el.dataset.ideaId !== activeDragId) {
+          const rect  = el.getBoundingClientRect();
+          const after = (e.clientY - rect.top) > (rect.height / 2);
+          dropTarget  = { el, after, columnId: column.dataset.columnId };
+          showIndicator(el, after);
+          return;
+        }
+        el = el.parentElement;
       }
+      // Hovering the column itself (no card under cursor) — drop at end
+      dropTarget = { el: null, after: true, columnId: column.dataset.columnId };
+      hideIndicator();
     }
   });
 
@@ -3296,6 +3376,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const column = e.target.closest('.ideas-column');
       if (column && !column.contains(e.relatedTarget)) {
         column.classList.remove('drag-over');
+        hideIndicator();
       }
     }
   });
@@ -3303,48 +3384,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('drop', async (e) => {
     e.preventDefault();
     if (!activeDragType) return;
+    hideIndicator();
+    document.querySelectorAll('.ideas-column').forEach(c => c.classList.remove('drag-over'));
 
-    if (activeDragType === 'task') {
-      const taskContainer = e.target.closest('[data-type="task"]');
-      if (taskContainer) {
-        const targetId = taskContainer.dataset.taskId;
-        const rect = taskContainer.getBoundingClientRect();
-        const after = (e.clientY - rect.top) > (rect.height / 2);
-        reorderTasks(activeDragId, targetId, after);
-        refreshView();
-      }
-    } else if (activeDragType === 'subtask') {
-      const subtaskItem = e.target.closest('[data-type="subtask"]');
-      if (subtaskItem && subtaskItem.dataset.parentId === activeParentId) {
-        const targetSubId = subtaskItem.dataset.subtaskId;
-        const rect = subtaskItem.getBoundingClientRect();
-        const after = (e.clientY - rect.top) > (rect.height / 2);
-        reorderSubtasks(activeParentId, activeDragId, targetSubId, after);
-        refreshView();
-      }
-    } else if (activeDragType === 'idea') {
-      const column = e.target.closest('.ideas-column');
-      if (column) {
-        const columnId = column.dataset.columnId;
-        const ideaCard = e.target.closest('[data-type="idea"]');
-        const targetSiblingId = ideaCard ? ideaCard.dataset.ideaId : null;
-        let after = false;
-        if (ideaCard) {
-          const rect = ideaCard.getBoundingClientRect();
-          after = (e.clientY - rect.top) > (rect.height / 2);
-        }
-        await reorderIdeas(activeDragId, columnId, targetSiblingId, after);
-        refreshView();
-      }
+    if (activeDragType === 'task' && dropTarget) {
+      const targetId = dropTarget.el.dataset.taskId;
+      reorderTasks(activeDragId, targetId, dropTarget.after);
+      refreshView();
+
+    } else if (activeDragType === 'subtask' && dropTarget) {
+      const targetSubId = dropTarget.el.dataset.subtaskId;
+      reorderSubtasks(activeParentId, activeDragId, targetSubId, dropTarget.after);
+      refreshView();
+
+    } else if (activeDragType === 'idea' && dropTarget) {
+      const targetSiblingId = dropTarget.el ? dropTarget.el.dataset.ideaId : null;
+      await reorderIdeas(activeDragId, dropTarget.columnId, targetSiblingId, dropTarget.after);
+      refreshView();
     }
   });
 
-  document.addEventListener('dragend', (e) => {
+  document.addEventListener('dragend', () => {
+    hideIndicator();
     document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
     document.querySelectorAll('.ideas-column').forEach(el => el.classList.remove('drag-over'));
-    activeDragType = null;
-    activeDragId = null;
-    activeParentId = null;
+    activeDragType  = null;
+    activeDragId    = null;
+    activeParentId  = null;
   });
 });
 </script>
