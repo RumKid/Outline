@@ -879,6 +879,13 @@ function thisWeek() {
 }
 function escH(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function getDefaultWealthCategories() {
+  return {
+    income: ['Salary', 'Freelance', 'Investments', 'Gift', 'Other'],
+    expense: ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Subscriptions', 'Other']
+  };
+}
+
 function lastWeek() {
   const now=new Date(), day=now.getDay();
   const diff=day===0?-13:-6-day;
@@ -1347,7 +1354,7 @@ const DM = {
         sleep:          S.g('pvp_sleep')           || {},
         intentions:     S.g('pvp_intentions')      || {},
         dailySummaries: S.g('pvp_daily_summaries') || {},
-        wealth:         S.g('pvp_wealth')          || { accounts:[], transactions:[], budgets:{}, categories:{} },
+        wealth:         S.g('pvp_wealth')          || { accounts:[], transactions:[], budgets:{}, categories:getDefaultWealthCategories() },
         ideas:          (() => { const r = localStorage.getItem('pvp_ideas'); return r ? JSON.parse(r) : []; })(),
         savedAt:        new Date().toISOString(),
       };
@@ -1813,16 +1820,17 @@ const S = {
 
   // ── Wealth Store Methods ──────────────────────────────────────
   wealth() {
-    const defaultCategories = {
-      income: ['Salary', 'Freelance', 'Investments', 'Gift', 'Other'],
-      expense: ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Subscriptions', 'Other']
-    };
+    const defaultCategories = getDefaultWealthCategories();
     const data = this.g('pvp_wealth') || {};
+    const categories = data.categories || {};
     return {
       accounts: data.accounts || [],
       transactions: data.transactions || [],
       budgets: data.budgets || {},
-      categories: data.categories || defaultCategories
+      categories: {
+        income: Array.isArray(categories.income) && categories.income.length > 0 ? categories.income : defaultCategories.income,
+        expense: Array.isArray(categories.expense) && categories.expense.length > 0 ? categories.expense : defaultCategories.expense
+      }
     };
   },
   _saveWealth(w) {
@@ -3436,10 +3444,7 @@ async function vWealth() {
   }));
 
   const budgets = data.budgets || {};
-  const categories = data.categories || {
-    income: ['Salary', 'Freelance', 'Investments', 'Gift', 'Other'],
-    expense: ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Subscriptions', 'Other']
-  };
+  const categories = data.categories || getDefaultWealthCategories();
 
   const netWorth = accounts.reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
 
@@ -3747,10 +3752,7 @@ function updateWealthCatOptions() {
   if (!typeEl || !catEl) return;
   const type = typeEl.value;
   const data = S.wealth();
-  const categories = data.categories || {
-    income: ['Salary', 'Freelance', 'Investments', 'Gift', 'Other'],
-    expense: ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Subscriptions', 'Other']
-  };
+  const categories = data.categories || getDefaultWealthCategories();
 
   if (type === 'transfer') {
     catEl.innerHTML = '<option value="Transfer">🔄 Transfer</option>';
