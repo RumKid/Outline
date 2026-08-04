@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -1857,6 +1857,9 @@ const S = {
     if (txn.note) {
       txn.note = await Auth.encryptField(txn.note);
     }
+    if (txn.type === 'transfer' && (!txn.toAccountId || txn.toAccountId === txn.accountId)) {
+      return;
+    }
     w.transactions.push(txn);
 
     // Update account balances
@@ -3500,19 +3503,23 @@ async function vWealth() {
               <div class="wealth-txn-list">
                 ${recentTxns.map(t => {
                   const acct = accounts.find(a => a.id === t.accountId);
+                  const dstAcct = t.type === 'transfer' ? accounts.find(a => a.id === t.toAccountId) : null;
                   const isInc = t.type === 'income';
                   const isExp = t.type === 'expense';
+                  const accountLabel = t.type === 'transfer'
+                    ? `${acct ? acct.decryptedName : 'Account'} → ${dstAcct ? dstAcct.decryptedName : 'Destination'}`
+                    : (acct ? acct.decryptedName : 'Account');
                   return `
                     <div class="wealth-txn-row">
                       <div class="txn-left">
                         <div class="txn-icon">${getCategoryEmoji(t.category)}</div>
                         <div>
                           <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);">${escH(t.decryptedNote || t.category)}</div>
-                          <div style="font-size:11.5px;color:var(--text-muted);">${t.date} · ${escH(acct ? acct.decryptedName : 'Account')}</div>
+                          <div style="font-size:11.5px;color:var(--text-muted);">${t.date} · ${escH(accountLabel)}</div>
                         </div>
                       </div>
                       <div class="${isInc ? 'txn-amt-pos' : isExp ? 'txn-amt-neg' : 'txn-amt-neu'}">
-                        ${isInc ? '+' : isExp ? '−' : ''}${fmtCurrency(t.amount)}
+                        ${t.type === 'transfer' ? '↔' : isInc ? '+' : isExp ? '−' : ''}${fmtCurrency(t.amount)}
                       </div>
                     </div>
                   `;
@@ -3563,6 +3570,11 @@ async function vWealth() {
               ${acctOptions}
             </select>
 
+            <select id="wtxn-to" class="input hidden">
+              <option value="">Destination account</option>
+              ${acctOptions}
+            </select>
+
             <select id="wtxn-cat" class="input">
               ${categories.expense.map(c => `<option value="${c}">${getCategoryEmoji(c)} ${c}</option>`).join('')}
             </select>
@@ -3586,20 +3598,24 @@ async function vWealth() {
           <div class="wealth-txn-list">
             ${sortedTxns.map(t => {
               const acct = accounts.find(a => a.id === t.accountId);
+              const dstAcct = t.type === 'transfer' ? accounts.find(a => a.id === t.toAccountId) : null;
               const isInc = t.type === 'income';
               const isExp = t.type === 'expense';
+              const accountLabel = t.type === 'transfer'
+                ? `${acct ? acct.decryptedName : 'Account'} → ${dstAcct ? dstAcct.decryptedName : 'Destination'}`
+                : (acct ? acct.decryptedName : 'Account');
               return `
                 <div class="wealth-txn-row">
                   <div class="txn-left">
                     <div class="txn-icon">${getCategoryEmoji(t.category)}</div>
                     <div>
                       <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);">${escH(t.decryptedNote || t.category)}</div>
-                      <div style="font-size:11.5px;color:var(--text-muted);">${t.date} · ${escH(acct ? acct.decryptedName : 'Account')} · <span style="text-transform:capitalize;">${t.type}</span></div>
+                      <div style="font-size:11.5px;color:var(--text-muted);">${t.date} · ${escH(accountLabel)} · <span style="text-transform:capitalize;">${t.type}</span></div>
                     </div>
                   </div>
                   <div style="display:flex;align-items:center;gap:14px;">
                     <div class="${isInc ? 'txn-amt-pos' : isExp ? 'txn-amt-neg' : 'txn-amt-neu'}">
-                      ${isInc ? '+' : isExp ? '−' : ''}${fmtCurrency(t.amount)}
+                      ${t.type === 'transfer' ? '↔' : isInc ? '+' : isExp ? '−' : ''}${fmtCurrency(t.amount)}
                     </div>
                     <button class="task-del" onclick="doDelWealthTransaction('${t.id}')" title="Delete transaction">&#10005;</button>
                   </div>
@@ -3727,6 +3743,7 @@ async function vWealth() {
 function updateWealthCatOptions() {
   const typeEl = $('wtxn-type');
   const catEl = $('wtxn-cat');
+  const toEl = $('wtxn-to');
   if (!typeEl || !catEl) return;
   const type = typeEl.value;
   const data = S.wealth();
@@ -3735,8 +3752,18 @@ function updateWealthCatOptions() {
     expense: ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Subscriptions', 'Other']
   };
 
-  const list = type === 'income' ? categories.income : type === 'expense' ? categories.expense : ['Transfer'];
-  catEl.innerHTML = list.map(c => `<option value="${c}">${getCategoryEmoji(c)} ${c}</option>`).join('');
+  if (type === 'transfer') {
+    catEl.innerHTML = '<option value="Transfer">🔄 Transfer</option>';
+    catEl.disabled = true;
+  } else {
+    const list = type === 'income' ? categories.income : categories.expense;
+    catEl.innerHTML = list.map(c => `<option value="${c}">${getCategoryEmoji(c)} ${c}</option>`).join('');
+    catEl.disabled = false;
+  }
+
+  if (toEl) {
+    toEl.classList.toggle('hidden', type !== 'transfer');
+  }
 }
 
 async function doAddWealthAccount() {
@@ -3783,17 +3810,20 @@ async function doAddWealthTransaction() {
 
   const type = typeIn?.value || 'expense';
   const accountId = acctIn?.value;
-  const category = catIn?.value || 'Other';
+  const toAccountId = $('wtxn-to')?.value;
+  const category = type === 'transfer' ? 'Transfer' : (catIn?.value || 'Other');
   const amount = parseFloat(amtIn?.value) || 0;
   const date = dateIn?.value || today();
   const note = noteIn?.value?.trim() || '';
 
   if (!accountId || amount <= 0) return;
+  if (type === 'transfer' && (!toAccountId || toAccountId === accountId)) return;
 
   await S.addWealthTransaction({
     id: uid(),
     type,
     accountId,
+    toAccountId: type === 'transfer' ? toAccountId : undefined,
     category,
     amount,
     date,
@@ -3802,6 +3832,8 @@ async function doAddWealthTransaction() {
 
   if (amtIn) amtIn.value = '';
   if (noteIn) noteIn.value = '';
+  const toIn = $('wtxn-to');
+  if (toIn) toIn.value = '';
 
   refreshView();
 }
@@ -4256,3 +4288,4 @@ document.addEventListener('DOMContentLoaded', async () => {
 </script>
 </body>
 </html>
+
