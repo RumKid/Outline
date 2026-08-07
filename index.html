@@ -1897,20 +1897,25 @@ const S = {
   delProject(id) {
     this.s('pvp_projects', this.projects().filter(project => project.id !== id));
   },
-  async addProjectTask(projectId, title) {
+  async addProjectTask(projectId, title, priority = 'medium') {
     const list = this.projects();
     const project = list.find(item => item.id === projectId);
     if (!project) return;
     const encryptedTitle = await Auth.encryptField(title);
     project.tasks = Array.isArray(project.tasks) ? project.tasks : [];
-    project.tasks.push({ id: uid(), title: encryptedTitle, done: false, createdAt: new Date().toISOString() });
+    project.tasks.push({ id: uid(), title: encryptedTitle, priority, done: false, subtasks: [], createdAt: new Date().toISOString() });
     this.s('pvp_projects', list);
   },
   toggleProjectTask(projectId, taskId) {
     const list = this.projects();
     const project = list.find(item => item.id === projectId);
     if (!project) return;
-    project.tasks = (project.tasks || []).map(task => task.id === taskId ? { ...task, done: !task.done } : task);
+    project.tasks = (project.tasks || []).map(task => {
+      if (task.id !== taskId) return task;
+      const nextDone = !task.done;
+      const subtasks = (task.subtasks || []).map(subtask => ({ ...subtask, done: nextDone }));
+      return { ...task, done: nextDone, subtasks };
+    });
     this.s('pvp_projects', list);
   },
   delProjectTask(projectId, taskId) {
@@ -1918,6 +1923,74 @@ const S = {
     const project = list.find(item => item.id === projectId);
     if (!project) return;
     project.tasks = (project.tasks || []).filter(task => task.id !== taskId);
+    this.s('pvp_projects', list);
+  },
+  async addProjectSubtask(projectId, parentTaskId, title) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project) return;
+    const parentTask = (project.tasks || []).find(task => task.id === parentTaskId);
+    if (!parentTask) return;
+    const encryptedTitle = await Auth.encryptField(title);
+    parentTask.subtasks = Array.isArray(parentTask.subtasks) ? parentTask.subtasks : [];
+    parentTask.subtasks.push({ id: uid(), title: encryptedTitle, done: false });
+    parentTask.done = false;
+    this.s('pvp_projects', list);
+  },
+  toggleProjectSubtask(projectId, parentTaskId, subtaskId) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project) return;
+    const parentTask = (project.tasks || []).find(task => task.id === parentTaskId);
+    if (!parentTask) return;
+    parentTask.subtasks = (parentTask.subtasks || []).map(subtask => subtask.id === subtaskId ? { ...subtask, done: !subtask.done } : subtask);
+    parentTask.done = parentTask.subtasks.length > 0 ? parentTask.subtasks.every(subtask => subtask.done) : parentTask.done;
+    this.s('pvp_projects', list);
+  },
+  delProjectSubtask(projectId, parentTaskId, subtaskId) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project) return;
+    const parentTask = (project.tasks || []).find(task => task.id === parentTaskId);
+    if (!parentTask) return;
+    parentTask.subtasks = (parentTask.subtasks || []).filter(subtask => subtask.id !== subtaskId);
+    parentTask.done = parentTask.subtasks.length > 0 ? parentTask.subtasks.every(subtask => subtask.done) : parentTask.done;
+    this.s('pvp_projects', list);
+  },
+  reorderProjectTasks(projectId, draggedTaskId, targetTaskId, after) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project || !project.tasks) return;
+    const draggedTask = project.tasks.find(task => task.id === draggedTaskId);
+    if (!draggedTask) return;
+    const remaining = project.tasks.filter(task => task.id !== draggedTaskId);
+    const targetIdx = remaining.findIndex(task => task.id === targetTaskId);
+    if (targetIdx !== -1) {
+      const insertIdx = after ? targetIdx + 1 : targetIdx;
+      remaining.splice(insertIdx, 0, draggedTask);
+    } else {
+      remaining.push(draggedTask);
+    }
+    project.tasks = remaining;
+    this.s('pvp_projects', list);
+  },
+  reorderProjectSubtasks(projectId, parentTaskId, draggedSubId, targetSubId, after) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project || !project.tasks) return;
+    const parentTask = project.tasks.find(task => task.id === parentTaskId);
+    if (!parentTask || !parentTask.subtasks) return;
+    const draggedSub = parentTask.subtasks.find(subtask => subtask.id === draggedSubId);
+    if (!draggedSub) return;
+    const remaining = parentTask.subtasks.filter(subtask => subtask.id !== draggedSubId);
+    const targetIdx = remaining.findIndex(subtask => subtask.id === targetSubId);
+    if (targetIdx !== -1) {
+      const insertIdx = after ? targetIdx + 1 : targetIdx;
+      remaining.splice(insertIdx, 0, draggedSub);
+    } else {
+      remaining.push(draggedSub);
+    }
+    parentTask.subtasks = remaining;
     this.s('pvp_projects', list);
   },
 
@@ -2646,8 +2719,9 @@ async function vProjects() {
       </div>
     ` : `
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:16px;align-items:start;">
-        ${projects.map(project => {
+        ${await Promise.all(projects.map(async project => {
           const progress = project.total > 0 ? Math.round((project.completed / project.total) * 100) : 0;
+          const taskItems = project.tasks.length > 0 ? (await Promise.all(project.tasks.map(task => projectTaskHTML(project.id, task)))).join('') : '';
           return `
             <div class="card" style="display:flex;flex-direction:column;gap:12px;">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
@@ -2662,22 +2736,26 @@ async function vProjects() {
                 <div class="pbar-labels"><span>${project.completed}/${project.total} tasks done</span><span style="color:var(--tasks);font-weight:700;">${progress}%</span></div>
                 <div class="pbar-wrap" style="height:7px;"><div class="pbar-fill" style="width:${progress}%;background:linear-gradient(90deg,var(--tasks),#fb7185);box-shadow:0 0 10px rgba(244,114,182,0.4);"></div></div>
               </div>
-              <div style="display:flex;flex-direction:column;gap:7px;">
-                ${project.tasks.length === 0 ? `<div style="font-size:13px;color:var(--text-muted);">No project tasks yet.</div>` : project.tasks.map(task => `
-                  <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border-default);border-radius:8px;background:var(--bg-elevated);">
-                    <button class="task-cb ${task.done ? 'checked' : ''}" style="width:18px;height:18px;font-size:9px;border:none;flex-shrink:0;" onclick="doToggleProjectTask('${project.id}','${task.id}')">${task.done ? '&#10003;' : ''}</button>
-                    <span style="flex:1;font-size:13px;color:${task.done ? 'var(--text-muted)' : 'var(--text-primary)'};text-decoration:${task.done ? 'line-through' : 'none'};">${escH(task.decryptedTitle)}</span>
-                    <button class="task-del" onclick="doDelProjectTask('${project.id}','${task.id}')" title="Delete task">&#10005;</button>
-                  </div>
-                `).join('')}
-              </div>
-              <div style="display:flex;gap:8px;">
-                <input id="proj-task-in-${project.id}" class="input" type="text" placeholder="Add task to this project" maxlength="120" onkeydown="if(event.key==='Enter')doAddProjectTask('${project.id}')">
-                <button class="btn btn-primary" style="height:38px;" onclick="doAddProjectTask('${project.id}')">Add</button>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <div class="sec-label" style="margin-bottom:0;">Project Tasks</div>
+                <div class="add-task-row" style="margin-bottom:2px;">
+                  <input id="proj-task-in-${project.id}" class="input" style="flex:1;" placeholder="Add a project task" maxlength="100" onkeydown="if(event.key==='Enter')doAddProjectTask('${project.id}')">
+                  <select id="proj-task-pri-${project.id}" class="input" style="width:auto;">
+                    <option value="high">🔴 High</option>
+                    <option value="medium" selected>🟡 Medium</option>
+                    <option value="low">🟢 Low</option>
+                  </select>
+                  <button class="btn btn-primary" onclick="doAddProjectTask('${project.id}')">+ Add</button>
+                </div>
+                <div class="task-list" data-project-id="${project.id}">
+                  ${project.tasks.length === 0
+                    ? `<div class="empty" style="padding:16px 0;"><div class="empty-icon">✅</div><div class="empty-txt">No project tasks yet.</div></div>`
+                    : taskItems}
+                </div>
               </div>
             </div>
           `;
-        }).join('')}
+        })).then(cards => cards.join(''))}
       </div>
     `}
   </div>`;
@@ -2704,11 +2782,13 @@ async function doAddProject() {
 
 async function doAddProjectTask(projectId) {
   const inp = $(`proj-task-in-${projectId}`);
+  const pri = $(`proj-task-pri-${projectId}`);
   const title = inp?.value?.trim();
   if (!title) return;
 
-  await S.addProjectTask(projectId, title);
+  await S.addProjectTask(projectId, title, pri?.value || 'medium');
   if (inp) inp.value = '';
+  if (pri) pri.value = 'medium';
   refreshView();
 }
 
@@ -2727,6 +2807,73 @@ function doCompleteProject(projectId) {
     S.updateProject(projectId, { status: 'done' });
     refreshView();
   }
+}
+
+const activeProjectSubForms = {};
+
+function toggleProjectSubForm(projectId, taskId) {
+  const key = `${projectId}:${taskId}`;
+  activeProjectSubForms[key] = !activeProjectSubForms[key];
+  refreshView();
+  if (activeProjectSubForms[key]) {
+    setTimeout(() => $(`proj-subin-${projectId}-${taskId}`)?.focus(), 50);
+  }
+}
+
+async function doAddProjectSubtask(projectId, taskId) {
+  const inp = $(`proj-subin-${projectId}-${taskId}`);
+  const title = inp?.value?.trim();
+  if (!title) return;
+  await S.addProjectSubtask(projectId, taskId, title);
+  if (inp) inp.value = '';
+  refreshView();
+}
+
+function doToggleProjectSubtask(projectId, taskId, subtaskId) {
+  S.toggleProjectSubtask(projectId, taskId, subtaskId);
+  refreshView();
+}
+
+function doDelProjectSubtask(projectId, taskId, subtaskId) {
+  S.delProjectSubtask(projectId, taskId, subtaskId);
+  refreshView();
+}
+
+function reorderProjectTasks(projectId, draggedTaskId, targetTaskId, after) {
+  S.reorderProjectTasks(projectId, draggedTaskId, targetTaskId, after);
+}
+
+function reorderProjectSubtasks(projectId, parentTaskId, draggedSubId, targetSubId, after) {
+  S.reorderProjectSubtasks(projectId, parentTaskId, draggedSubId, targetSubId, after);
+}
+
+async function projectTaskHTML(projectId, task) {
+  var subtasks = task.subtasks || [];
+  var doneSubs = subtasks.filter(function(subtask){ return subtask.done; }).length;
+  var totalSubs = subtasks.length;
+  var fractionText = totalSubs > 0 ? '<span class="task-fraction" style="font-size:11px;color:var(--text-secondary);font-weight:600;margin-left:5px;">(' + doneSubs + '/' + totalSubs + ')</span>' : '';
+  var isFormOpen = activeProjectSubForms[`${projectId}:${task.id}`];
+  const decryptedTitle = await Auth.decryptField(task.title, "🔒 [Locked Task]");
+  var subItems = await Promise.all(subtasks.map(async function(subtask){
+    const decSubTitle = await Auth.decryptField(subtask.title, "🔒 [Locked Subtask]");
+    return '<div class="subtask-item ' + (subtask.done ? 'done' : '') + '" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="proj-sti-' + subtask.id + '" draggable="true" data-type="project-subtask" data-project-id="' + projectId + '" data-parent-id="' + task.id + '" data-subtask-id="' + subtask.id + '">'
+      + '<div class="task-cb ' + (subtask.done ? 'checked' : '') + '" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleProjectSubtask(\'' + projectId + '\',\'' + task.id + '\',\'' + subtask.id + '\')">' + (subtask.done ? '&#10003;' : '') + '</div>'
+      + '<span class="task-title-txt" style="' + (subtask.done ? 'text-decoration:line-through;color:var(--text-muted);' : '') + ';flex:1;">' + escH(decSubTitle) + '</span>'
+      + '<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelProjectSubtask(\'' + projectId + '\',\'' + task.id + '\',\'' + subtask.id + '\')">&#10005;</button>'
+      + '</div>';
+  }));
+  var subtasksHTML = totalSubs > 0
+    ? '<div class="subtasks-list" data-project-id="' + projectId + '" data-parent-id="' + task.id + '" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">' + subItems.join('') + '</div>'
+    : '';
+  var addForm = '<div class="add-subtask-form-container ' + (isFormOpen ? '' : 'hidden') + '" id="proj-asf-' + projectId + '-' + task.id + '" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="proj-subin-' + projectId + '-' + task.id + '" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddProjectSubtask(\'' + projectId + '\',\'' + task.id + '\')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddProjectSubtask(\'' + projectId + '\',\'' + task.id + '\')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleProjectSubForm(\'' + projectId + '\',\'' + task.id + '\')">Cancel</button></div></div>';
+  var inner = '<div class="task-item' + (task.done ? ' done' : '') + '" id="proj-ti-' + projectId + '-' + task.id + '">'
+    + '<div class="task-cb' + (task.done ? ' checked' : '') + '" onclick="doToggleProjectTask(\'' + projectId + '\',\'' + task.id + '\')">' + (task.done ? '&#10003;' : '') + '</div>'
+    + '<div class="task-dot dot-' + (task.priority || 'medium') + '"></div>'
+    + '<span class="task-title-txt" style="flex:1;">' + escH(decryptedTitle) + fractionText + '</span>'
+    + '<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleProjectSubForm(\'' + projectId + '\',\'' + task.id + '\')" title="Add subtask">+</button>'
+    + '<button class="task-del" onclick="doDelProjectTask(\'' + projectId + '\',\'' + task.id + '\')">&#10005;</button>'
+    + '</div>';
+  return '<div class="task-container" id="proj-tc-' + projectId + '-' + task.id + '" draggable="true" data-type="project-task" data-project-id="' + projectId + '" data-task-id="' + task.id + '">' + inner + subtasksHTML + addForm + '</div>';
 }
 
 const activeSubForms = {};
@@ -4364,6 +4511,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let activeDragType  = null;
   let activeDragId    = null;
   let activeParentId  = null;
+  let activeProjectId = null;
   // Stores the resolved drop target: { el, after }
   let dropTarget = null;
 
@@ -4388,11 +4536,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   document.addEventListener('dragstart', (e) => {
+    const projectSubtaskItem = e.target.closest('[data-type="project-subtask"]');
+    const projectTaskContainer = e.target.closest('[data-type="project-task"]');
     const subtaskItem   = e.target.closest('[data-type="subtask"]');
     const taskContainer = e.target.closest('[data-type="task"]');
     const ideaCard      = e.target.closest('[data-type="idea"]');
 
-    if (subtaskItem) {
+    if (projectSubtaskItem) {
+      activeDragType = 'project-subtask';
+      activeDragId   = projectSubtaskItem.dataset.subtaskId;
+      activeParentId = projectSubtaskItem.dataset.parentId;
+      activeProjectId = projectSubtaskItem.dataset.projectId;
+      setTimeout(() => projectSubtaskItem.classList.add('dragging'), 0);
+    } else if (projectTaskContainer) {
+      activeDragType = 'project-task';
+      activeDragId   = projectTaskContainer.dataset.taskId;
+      activeProjectId = projectTaskContainer.dataset.projectId;
+      setTimeout(() => projectTaskContainer.classList.add('dragging'), 0);
+    } else if (subtaskItem) {
       activeDragType = 'subtask';
       activeDragId   = subtaskItem.dataset.subtaskId;
       activeParentId = subtaskItem.dataset.parentId;
@@ -4420,7 +4581,64 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.dataTransfer.dropEffect = 'move';
     dropTarget = null;
 
-    if (activeDragType === 'task') {
+    if (activeDragType === 'project-task') {
+      let el = e.target;
+      while (el && el !== document.body) {
+        if (el.dataset && el.dataset.type === 'project-task'
+            && el.dataset.projectId === activeProjectId
+            && el.dataset.taskId !== activeDragId) {
+          const rect  = el.getBoundingClientRect();
+          const after = (e.clientY - rect.top) > (rect.height / 2);
+          dropTarget  = { el, after, projectId: activeProjectId };
+          showIndicator(el, after);
+          return;
+        }
+        el = el.parentElement;
+      }
+      const taskList = e.target.closest(`.task-list[data-project-id="${activeProjectId}"]`);
+      if (taskList) {
+        const children = taskList.querySelectorAll('[data-type="project-task"]');
+        if (children.length > 0) {
+          const lastChild = children[children.length - 1];
+          if (lastChild.dataset.taskId !== activeDragId) {
+            dropTarget = { el: lastChild, after: true, projectId: activeProjectId };
+            showIndicator(lastChild, true);
+            return;
+          }
+        }
+      }
+      hideIndicator();
+
+    } else if (activeDragType === 'project-subtask') {
+      let el = e.target;
+      while (el && el !== document.body) {
+        if (el.dataset && el.dataset.type === 'project-subtask'
+            && el.dataset.projectId === activeProjectId
+            && el.dataset.parentId === activeParentId
+            && el.dataset.subtaskId !== activeDragId) {
+          const rect  = el.getBoundingClientRect();
+          const after = (e.clientY - rect.top) > (rect.height / 2);
+          dropTarget  = { el, after, projectId: activeProjectId, parentId: activeParentId };
+          showIndicator(el, after);
+          return;
+        }
+        el = el.parentElement;
+      }
+      const subtaskList = e.target.closest(`.subtasks-list[data-project-id="${activeProjectId}"][data-parent-id="${activeParentId}"]`);
+      if (subtaskList) {
+        const children = subtaskList.querySelectorAll('[data-type="project-subtask"]');
+        if (children.length > 0) {
+          const lastChild = children[children.length - 1];
+          if (lastChild.dataset.subtaskId !== activeDragId) {
+            dropTarget = { el: lastChild, after: true, projectId: activeProjectId, parentId: activeParentId };
+            showIndicator(lastChild, true);
+            return;
+          }
+        }
+      }
+      hideIndicator();
+
+    } else if (activeDragType === 'task') {
       // Walk up from the hovered element to find a task-container
       let el = e.target;
       while (el && el !== document.body) {
@@ -4520,7 +4738,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     hideIndicatorLine();
     document.querySelectorAll('.ideas-column').forEach(c => c.classList.remove('drag-over'));
 
-    if (activeDragType === 'task' && resolved) {
+    if (activeDragType === 'project-task' && resolved) {
+      const targetId = resolved.el.dataset.taskId;
+      S.reorderProjectTasks(resolved.projectId, activeDragId, targetId, resolved.after);
+      refreshView();
+
+    } else if (activeDragType === 'project-subtask' && resolved) {
+      const targetSubId = resolved.el.dataset.subtaskId;
+      S.reorderProjectSubtasks(resolved.projectId, resolved.parentId, activeDragId, targetSubId, resolved.after);
+      refreshView();
+
+    } else if (activeDragType === 'task' && resolved) {
       const targetId = resolved.el.dataset.taskId;
       reorderTasks(activeDragId, targetId, resolved.after);
       refreshView();
@@ -4544,6 +4772,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     activeDragType  = null;
     activeDragId    = null;
     activeParentId  = null;
+    activeProjectId = null;
   });
 });
 </script>
