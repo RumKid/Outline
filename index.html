@@ -787,6 +787,9 @@
       <a class="nav-item" data-view="tasks" onclick="navigate('tasks')">
         <span class="nav-ind"></span><span class="nav-emoji">☑</span><span>Tasks</span>
       </a>
+      <a class="nav-item" data-view="projects" onclick="navigate('projects')">
+        <span class="nav-ind"></span><span class="nav-emoji">🗂</span><span>Projects</span>
+      </a>
       <a class="nav-item" data-view="habits" onclick="navigate('habits')">
         <span class="nav-ind"></span><span class="nav-emoji">🔥</span><span>Habits</span>
       </a>
@@ -1057,6 +1060,40 @@ const Auth = (() => {
       if (wealthModified) {
         localStorage.setItem('pvp_wealth', JSON.stringify(wealthData));
         S._cache['pvp_wealth'] = wealthData;
+        await DM.save();
+      }
+
+      // Encrypt project titles and task titles in localStorage/cache
+      const projects = S.projects();
+      let projectsModified = false;
+      const encryptedProjects = await Promise.all(projects.map(async project => {
+        let projectCopy = { ...project };
+        if (typeof projectCopy.title === 'string') {
+          const enc = await aesEncrypt(key, projectCopy.title);
+          projectCopy.title = { _enc: true, ...enc };
+          projectsModified = true;
+        }
+        if (typeof projectCopy.description === 'string' && projectCopy.description) {
+          const enc = await aesEncrypt(key, projectCopy.description);
+          projectCopy.description = { _enc: true, ...enc };
+          projectsModified = true;
+        }
+        if (projectCopy.tasks) {
+          projectCopy.tasks = await Promise.all(projectCopy.tasks.map(async task => {
+            let taskCopy = { ...task };
+            if (typeof taskCopy.title === 'string') {
+              const enc = await aesEncrypt(key, taskCopy.title);
+              taskCopy.title = { _enc: true, ...enc };
+              projectsModified = true;
+            }
+            return taskCopy;
+          }));
+        }
+        return projectCopy;
+      }));
+      if (projectsModified) {
+        localStorage.setItem('pvp_projects', JSON.stringify(encryptedProjects));
+        S._cache['pvp_projects'] = encryptedProjects;
         await DM.save();
       }
     },
@@ -1355,6 +1392,7 @@ const DM = {
         intentions:     S.g('pvp_intentions')      || {},
         dailySummaries: S.g('pvp_daily_summaries') || {},
         wealth:         S.g('pvp_wealth')          || { accounts:[], transactions:[], budgets:{}, categories:getDefaultWealthCategories() },
+        projects:       S.g('pvp_projects')        || [],
         ideas:          (() => { const r = localStorage.getItem('pvp_ideas'); return r ? JSON.parse(r) : []; })(),
         savedAt:        new Date().toISOString(),
       };
@@ -1438,6 +1476,7 @@ const DM = {
     if (data.intentions)     S.s('pvp_intentions',      data.intentions);
     if (data.dailySummaries) S.s('pvp_daily_summaries', data.dailySummaries);
     if (data.wealth)         S.s('pvp_wealth',          data.wealth);
+    if (data.projects)       S.s('pvp_projects',        data.projects);
     // ideas may be an encrypted blob — store raw, don't decrypt here
     if (data.ideas !== undefined) {
       localStorage.setItem('pvp_ideas', JSON.stringify(data.ideas));
@@ -1816,6 +1855,70 @@ const S = {
   async delIdea(id) {
     const list = (await this.ideasAsync()).filter(idea => idea.id !== id);
     await this._saveIdeas(list);
+  },
+
+  // ── Projects ──────────────────────────────────────────────────
+  projects() {
+    const list = this.g('pvp_projects') || [];
+    return list.map(project => ({
+      tasks: [],
+      status: 'active',
+      ...project,
+      tasks: Array.isArray(project.tasks) ? project.tasks : []
+    }));
+  },
+  async addProject(project) {
+    const list = this.projects();
+    const projectCopy = { ...project };
+    projectCopy.title = await Auth.encryptField(projectCopy.title);
+    if (projectCopy.description) {
+      projectCopy.description = await Auth.encryptField(projectCopy.description);
+    }
+    projectCopy.status = projectCopy.status || 'active';
+    projectCopy.tasks = Array.isArray(projectCopy.tasks) ? projectCopy.tasks : [];
+    list.push(projectCopy);
+    this.s('pvp_projects', list);
+  },
+  async updateProject(id, updates) {
+    const list = this.projects();
+    const idx = list.findIndex(project => project.id === id);
+    if (idx === -1) return;
+    const current = list[idx];
+    const next = { ...current, ...updates };
+    if (updates.title !== undefined && typeof updates.title === 'string') {
+      next.title = await Auth.encryptField(updates.title);
+    }
+    if (updates.description !== undefined) {
+      next.description = updates.description ? await Auth.encryptField(updates.description) : '';
+    }
+    list[idx] = next;
+    this.s('pvp_projects', list);
+  },
+  delProject(id) {
+    this.s('pvp_projects', this.projects().filter(project => project.id !== id));
+  },
+  async addProjectTask(projectId, title) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project) return;
+    const encryptedTitle = await Auth.encryptField(title);
+    project.tasks = Array.isArray(project.tasks) ? project.tasks : [];
+    project.tasks.push({ id: uid(), title: encryptedTitle, done: false, createdAt: new Date().toISOString() });
+    this.s('pvp_projects', list);
+  },
+  toggleProjectTask(projectId, taskId) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project) return;
+    project.tasks = (project.tasks || []).map(task => task.id === taskId ? { ...task, done: !task.done } : task);
+    this.s('pvp_projects', list);
+  },
+  delProjectTask(projectId, taskId) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project) return;
+    project.tasks = (project.tasks || []).filter(task => task.id !== taskId);
+    this.s('pvp_projects', list);
   },
 
   // ── Wealth Store Methods ──────────────────────────────────────
@@ -2496,6 +2599,134 @@ async function vTasks(){
       </div>
     </div>
   </div>`;
+}
+
+/* ── PROJECTS ── */
+async function vProjects() {
+  const projects = await Promise.all(
+    (S.projects() || [])
+      .filter(project => project.status !== 'done')
+      .map(async project => {
+        const title = await Auth.decryptField(project.title, '🔒 [Locked Project]');
+        const description = await Auth.decryptField(project.description, '');
+        const tasks = await Promise.all((project.tasks || []).map(async task => ({
+          ...task,
+          decryptedTitle: await Auth.decryptField(task.title, '🔒 [Locked Task]')
+        })));
+        const completed = tasks.filter(task => task.done).length;
+        return {
+          ...project,
+          decryptedTitle: title,
+          decryptedDescription: description,
+          tasks,
+          completed,
+          total: tasks.length
+        };
+      })
+  );
+
+  return `<div class="view-enter">
+    <div class="page-header">
+      <h1 class="page-title">Projects</h1>
+      <p class="page-sub">Track only the projects you are actively working on right now.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div class="sec-label">＋ New Project</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;align-items:center;">
+        <input id="proj-title" class="input" type="text" placeholder="Project name" maxlength="120" onkeydown="if(event.key==='Enter')doAddProject()">
+        <input id="proj-desc" class="input" type="text" placeholder="Short description (optional)" maxlength="200" onkeydown="if(event.key==='Enter')doAddProject()">
+        <button class="btn btn-primary" style="height:38px;" onclick="doAddProject()">+ Add Project</button>
+      </div>
+    </div>
+
+    ${projects.length === 0 ? `
+      <div class="card">
+        <div class="empty"><div class="empty-icon">🗂</div><div class="empty-txt">No active projects yet. Add the first one above.</div></div>
+      </div>
+    ` : `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:16px;align-items:start;">
+        ${projects.map(project => {
+          const progress = project.total > 0 ? Math.round((project.completed / project.total) * 100) : 0;
+          return `
+            <div class="card" style="display:flex;flex-direction:column;gap:12px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+                <div>
+                  <div class="sec-label" style="margin-bottom:6px;">Current Project</div>
+                  <h3 style="font-size:18px;font-weight:800;line-height:1.2;">${escH(project.decryptedTitle)}</h3>
+                  ${project.decryptedDescription ? `<div style="margin-top:6px;font-size:13px;color:var(--text-secondary);line-height:1.5;">${escH(project.decryptedDescription)}</div>` : ''}
+                </div>
+                <button class="task-del" onclick="doCompleteProject('${project.id}')" title="Mark project complete">✓</button>
+              </div>
+              <div>
+                <div class="pbar-labels"><span>${project.completed}/${project.total} tasks done</span><span style="color:var(--tasks);font-weight:700;">${progress}%</span></div>
+                <div class="pbar-wrap" style="height:7px;"><div class="pbar-fill" style="width:${progress}%;background:linear-gradient(90deg,var(--tasks),#fb7185);box-shadow:0 0 10px rgba(244,114,182,0.4);"></div></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:7px;">
+                ${project.tasks.length === 0 ? `<div style="font-size:13px;color:var(--text-muted);">No project tasks yet.</div>` : project.tasks.map(task => `
+                  <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border-default);border-radius:8px;background:var(--bg-elevated);">
+                    <button class="task-cb ${task.done ? 'checked' : ''}" style="width:18px;height:18px;font-size:9px;border:none;flex-shrink:0;" onclick="doToggleProjectTask('${project.id}','${task.id}')">${task.done ? '&#10003;' : ''}</button>
+                    <span style="flex:1;font-size:13px;color:${task.done ? 'var(--text-muted)' : 'var(--text-primary)'};text-decoration:${task.done ? 'line-through' : 'none'};">${escH(task.decryptedTitle)}</span>
+                    <button class="task-del" onclick="doDelProjectTask('${project.id}','${task.id}')" title="Delete task">&#10005;</button>
+                  </div>
+                `).join('')}
+              </div>
+              <div style="display:flex;gap:8px;">
+                <input id="proj-task-in-${project.id}" class="input" type="text" placeholder="Add task to this project" maxlength="120" onkeydown="if(event.key==='Enter')doAddProjectTask('${project.id}')">
+                <button class="btn btn-primary" style="height:38px;" onclick="doAddProjectTask('${project.id}')">Add</button>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  </div>`;
+}
+
+async function doAddProject() {
+  const titleIn = $('proj-title');
+  const descIn = $('proj-desc');
+  const title = titleIn?.value?.trim();
+  if (!title) return;
+
+  await S.addProject({
+    id: uid(),
+    title,
+    description: descIn?.value?.trim() || '',
+    status: 'active',
+    tasks: []
+  });
+
+  if (titleIn) titleIn.value = '';
+  if (descIn) descIn.value = '';
+  refreshView();
+}
+
+async function doAddProjectTask(projectId) {
+  const inp = $(`proj-task-in-${projectId}`);
+  const title = inp?.value?.trim();
+  if (!title) return;
+
+  await S.addProjectTask(projectId, title);
+  if (inp) inp.value = '';
+  refreshView();
+}
+
+function doToggleProjectTask(projectId, taskId) {
+  S.toggleProjectTask(projectId, taskId);
+  refreshView();
+}
+
+function doDelProjectTask(projectId, taskId) {
+  S.delProjectTask(projectId, taskId);
+  refreshView();
+}
+
+function doCompleteProject(projectId) {
+  if (confirm('Mark this project as complete and remove it from active projects?')) {
+    S.updateProject(projectId, { status: 'done' });
+    refreshView();
+  }
 }
 
 const activeSubForms = {};
@@ -3664,13 +3895,16 @@ async function vWealth() {
         ` : `
           ${accounts.map(a => `
             <div class="wealth-acct-card">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
-                <div>
-                  <span class="acct-type-badge">${a.type || 'bank'}</span>
-                  <h3 style="font-size:16px;font-weight:700;margin-top:6px;">${escH(a.decryptedName)}</h3>
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:8px;">
+                  <div>
+                    <span class="acct-type-badge">${a.type || 'bank'}</span>
+                    <h3 style="font-size:16px;font-weight:700;margin-top:6px;">${escH(a.decryptedName)}</h3>
+                  </div>
+                  <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+                    <button class="btn btn-primary" style="padding:5px 10px;font-size:11px;height:auto;" onclick="doAddMoneyToAccount('${a.id}')">＋ Add Money</button>
+                    <button class="task-del" onclick="doDelWealthAccount('${a.id}')" title="Delete account">&#10005;</button>
+                  </div>
                 </div>
-                <button class="task-del" onclick="doDelWealthAccount('${a.id}')" title="Delete account">&#10005;</button>
-              </div>
               <div style="font-family:'Outfit',sans-serif;font-size:26px;font-weight:800;color:var(--text-primary);margin-top:10px;">
                 ${fmtCurrency(a.balance, a.currency || '₹')}
               </div>
@@ -3802,6 +4036,30 @@ function doDelWealthAccount(id) {
   }
 }
 
+async function doAddMoneyToAccount(accountId) {
+  const data = S.wealth();
+  const acct = (data.accounts || []).find(account => account.id === accountId);
+  if (!acct) return;
+
+  const accountLabel = await Auth.decryptField(acct.name, 'account');
+  const amount = parseFloat(prompt(`Amount to add to ${accountLabel}:`));
+  if (!amount || amount <= 0) return;
+
+  const note = prompt('Note (optional):') || 'Deposit';
+
+  await S.addWealthTransaction({
+    id: uid(),
+    type: 'income',
+    accountId,
+    category: 'Deposit',
+    amount,
+    date: today(),
+    note
+  });
+
+  refreshView();
+}
+
 async function doAddWealthTransaction() {
   const typeIn = $('wtxn-type');
   const acctIn = $('wtxn-acct');
@@ -3896,7 +4154,7 @@ async function renderView(v){
 
   // Async-capable view map
   const syncMap  = {habits:vHabits, water:vWater, study:vStudy, sleep:vSleep};
-  const asyncMap = {journal:vJournal, ideas:vIdeas, dashboard:vDashboard, tasks:vTasks, wealth:vWealth};
+  const asyncMap = {journal:vJournal, ideas:vIdeas, dashboard:vDashboard, tasks:vTasks, projects:vProjects, wealth:vWealth};
 
   let html;
   if (asyncMap[curView]) {
@@ -3949,6 +4207,7 @@ function initDate(){
 document.addEventListener('keydown',e=>{
   if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
   if(e.key==='t'||e.key==='T'){navigate('tasks');setTimeout(()=>$('task-in')?.focus(),120);}
+  if(e.key==='p'||e.key==='P'){navigate('projects');setTimeout(()=>$('proj-title')?.focus(),120);}
   if(e.key==='w'||e.key==='W'){S.addWater(250);updateScore();if(curView==='water')refreshView();if(curView==='dashboard')navigate('dashboard');}
   if(e.key==='s'||e.key==='S'){navigate('study');setTimeout(doToggleTimer,120);}
   if(e.key==='1')navigate('dashboard');
