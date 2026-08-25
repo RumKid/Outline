@@ -1275,6 +1275,10 @@ const DM = {
   dirHandle: null,
   fileName: 'outline-data.json',
   journalFileName: 'outline-journal.json',
+  backupFileName: 'outline-data.backup.json',
+  backupPreviousFileName: 'outline-data.backup.previous.json',
+  journalBackupFileName: 'outline-journal.backup.json',
+  journalBackupPreviousFileName: 'outline-journal.backup.previous.json',
   fallback: false,          // true = localStorage-only mode
   saveTimer: null,
   saveJournalTimer: null,
@@ -1286,6 +1290,9 @@ const DM = {
   journalRetryTimer: null,
   saveRetryCount: 0,
   journalRetryCount: 0,
+  recoveryNotice: null,
+  skipNextDataBackup: false,
+  skipNextJournalBackup: false,
 
   // ── IndexedDB: persist the directory handle ──────────────────
   _dbProm: null,
@@ -1336,7 +1343,7 @@ const DM = {
         if (q === 'granted') {
           // Already have permission — load data and go straight in
           await this.loadAll();
-          this.setStatus('connected', 'Data folder connected', h.name);
+          this.setConnectedStatus(h.name);
           return 'ready';
         }
         // Permission not granted yet — try requesting it silently
@@ -1344,7 +1351,7 @@ const DM = {
         const r = await h.requestPermission({ mode: 'readwrite' });
         if (r === 'granted') {
           await this.loadAll();
-          this.setStatus('connected', 'Data folder connected', h.name);
+          this.setConnectedStatus(h.name);
           return 'ready';
         }
       } catch(e) {
@@ -1380,14 +1387,79 @@ const DM = {
   },
 
   // ── Read data from file ───────────────────────────────────────
+  async readText(fileName) {
+    const fh = await this.dirHandle.getFileHandle(fileName);
+    const file = await fh.getFile();
+    return file.text();
+  },
+
+  async writeText(fileName, text) {
+    const fh = await this.dirHandle.getFileHandle(fileName, { create: true });
+    const wr = await fh.createWritable();
+    try {
+      await wr.write(text);
+      await wr.close();
+    } catch (error) {
+      try { await wr.abort(); } catch {}
+      throw error;
+    }
+  },
+
+  async backupExistingFile(fileName, backupFileName, previousBackupFileName, skipFlag) {
+    if (this[skipFlag]) {
+      this[skipFlag] = false;
+      return;
+    }
+    let currentText;
+    try {
+      currentText = await this.readText(fileName);
+    } catch (error) {
+      if (error?.name === 'NotFoundError') return;
+      throw error;
+    }
+
+    try {
+      const previousBackup = await this.readText(backupFileName);
+      await this.writeText(previousBackupFileName, previousBackup);
+    } catch (error) {
+      if (error?.name !== 'NotFoundError') throw error;
+    }
+    await this.writeText(backupFileName, currentText);
+  },
+
+  async loadJsonWithBackup(fileName, backupFileName, previousBackupFileName, kind, skipFlag) {
+    let primaryText = null;
+    try {
+      primaryText = await this.readText(fileName);
+    } catch (error) {
+      if (error?.name !== 'NotFoundError') console.error(`Could not read ${kind}:`, error);
+    }
+
+    if (primaryText !== null) {
+      try {
+        return JSON.parse(primaryText);
+      } catch (error) {
+        console.error(`${kind} is corrupted:`, error);
+      }
+    }
+
+    for (const recoveryFileName of [backupFileName, previousBackupFileName]) {
+      try {
+        const backupText = await this.readText(recoveryFileName);
+        const recovered = JSON.parse(backupText);
+        this.recoveryNotice = `${kind} backup restored`;
+        this[skipFlag] = true;
+        return recovered;
+      } catch (error) {
+        if (error?.name !== 'NotFoundError') console.error(`Could not recover ${kind} from ${recoveryFileName}:`, error);
+      }
+    }
+    return null;
+  },
+
   async load() {
     if (this.fallback || !this.dirHandle) return null;
-    try {
-      const fh = await this.dirHandle.getFileHandle(this.fileName);
-      const file = await fh.getFile();
-      const txt = await file.text();
-      return JSON.parse(txt);
-    } catch { return null; }
+    return this.loadJsonWithBackup(this.fileName, this.backupFileName, this.backupPreviousFileName, 'Outline data', 'skipNextDataBackup');
   },
 
   // ── Write data to file ────────────────────────────────────────
@@ -1449,12 +1521,20 @@ const DM = {
       savedAt:        new Date().toISOString(),
     };
 
+    try {
+      await this.backupExistingFile(this.fileName, this.backupFileName, this.backupPreviousFileName, 'skipNextDataBackup');
+    } catch (error) {
+      console.error('Could not create data backup; save cancelled:', error);
+      this.savePending = true;
+      this.saveRetryCount++;
+      this.scheduleSaveRetry();
+      this.setStatus('disconnected', 'Backup failed', 'Save cancelled · retrying automatically');
+      return false;
+    }
+
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const fh = await this.dirHandle.getFileHandle(this.fileName, { create: true });
-        const wr = await fh.createWritable();
-        await wr.write(JSON.stringify(data, null, 2));
-        await wr.close();
+        await this.writeText(this.fileName, JSON.stringify(data, null, 2));
         this.saveRetryCount = 0;
         const now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
         this.setStatus('connected', 'Saved to folder', `Last saved ${now}`);
@@ -1474,13 +1554,7 @@ const DM = {
   // ── Read journal from file ────────────────────────────────────
   async loadJournal() {
     if (this.fallback || !this.dirHandle) return null;
-    try {
-      const fh = await this.dirHandle.getFileHandle(this.journalFileName);
-      const file = await fh.getFile();
-      const txt = await file.text();
-      // Returns the raw object (may be { _enc, iv, data } or plain {})
-      return JSON.parse(txt);
-    } catch { return null; }
+    return this.loadJsonWithBackup(this.journalFileName, this.journalBackupFileName, this.journalBackupPreviousFileName, 'Journal data', 'skipNextJournalBackup');
   },
 
   // ── Write journal to file ─────────────────────────────────────
@@ -1526,12 +1600,19 @@ const DM = {
     if (!this.dirHandle) return false;
     const raw = localStorage.getItem('pvp_journal');
     const data = raw ? JSON.parse(raw) : {};
+    try {
+      await this.backupExistingFile(this.journalFileName, this.journalBackupFileName, this.journalBackupPreviousFileName, 'skipNextJournalBackup');
+    } catch (error) {
+      console.error('Could not create journal backup; save cancelled:', error);
+      this.journalSavePending = true;
+      this.journalRetryCount++;
+      this.scheduleJournalRetry();
+      this.setStatus('disconnected', 'Backup failed', 'Journal save cancelled · retrying automatically');
+      return false;
+    }
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const fh = await this.dirHandle.getFileHandle(this.journalFileName, { create: true });
-        const wr = await fh.createWritable();
-        await wr.write(JSON.stringify(data, null, 2));
-        await wr.close();
+        await this.writeText(this.journalFileName, JSON.stringify(data, null, 2));
         this.journalRetryCount = 0;
         return true;
       } catch(e) {
@@ -1551,6 +1632,7 @@ const DM = {
   },
 
   async loadAll() {
+    this.recoveryNotice = null;
     const existing = await this.load();
     await this.applyToStore(existing);
     const existingJournal = await this.loadJournal();
@@ -1595,6 +1677,14 @@ const DM = {
   },
 
   // ── Status badge ─────────────────────────────────────────────
+  setConnectedStatus(folderName) {
+    if (this.recoveryNotice) {
+      this.setStatus('connected', 'Recovered backup', `${this.recoveryNotice} · ${folderName}`);
+      return;
+    }
+    this.setStatus('connected', 'Data folder connected', folderName);
+  },
+
   setStatus(state, txt, sub) {
     const dot = $('data-dot'), stxt = $('data-status-txt'), ssub = $('data-status-sub');
     if (!dot) return;
@@ -1635,7 +1725,7 @@ async function restorePermission() {
   if (ok) {
     $('restore-banner').classList.add('hidden');
     await DM.loadAll();
-    DM.setStatus('connected', 'Data folder connected', DM.dirHandle.name);
+    DM.setConnectedStatus(DM.dirHandle.name);
     hideOverlay();
     renderView('dashboard');
     updateScore();
@@ -1658,7 +1748,7 @@ async function finishSetup(isChange) {
   if (!existingJournal) {
     await DM._doSaveJournal();
   }
-  DM.setStatus('connected', 'Data folder connected', DM.dirHandle.name);
+  DM.setConnectedStatus(DM.dirHandle.name);
   if (isChange) {
     // Already in app — just update status
     return;
@@ -4610,7 +4700,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const ok = await DM.requestPermission();
       if (ok) {
         await DM.loadAll();
-        DM.setStatus('connected', 'Data folder connected', DM.dirHandle.name);
+        DM.setConnectedStatus(DM.dirHandle.name);
         refreshView();
       } else {
         // Permission denied — fall back to localStorage silently
