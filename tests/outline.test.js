@@ -23,6 +23,8 @@ function createDirectory(initial = {}) {
   const directory = {
     name: 'Outline test folder',
     files,
+    failWrites: 0,
+    failWritesFor: null,
     async getFileHandle(name, options = {}) {
       if (!files.has(name) && !options.create) {
         const error = new Error(`Missing file: ${name}`);
@@ -37,7 +39,13 @@ function createDirectory(initial = {}) {
         async createWritable() {
           let nextText = '';
           return {
-            async write(text) { nextText = text; },
+            async write(text) {
+              if (directory.failWrites > 0 && directory.failWritesFor === name) {
+                directory.failWrites--;
+                throw new Error('Simulated write failure');
+              }
+              nextText = text;
+            },
             async close() { files.set(name, nextText); },
             async abort() {}
           };
@@ -130,6 +138,33 @@ test('wealth income, expense, transfer, deletion, and budget calculations stay b
   wealth = app.S.wealth();
   assert.equal(wealth.accounts.find(account => account.id === 'bank').balance, 1300);
   assert.equal(wealth.budgets.Food, 500);
+});
+
+test('durable saves flush pending data and retry transient write failures', async () => {
+  const app = loadApp();
+  const directory = createDirectory();
+  app.DM.dirHandle = directory;
+  app.DM.fallback = true;
+  app.S.s('pvp_tasks', [{ id: 'durable-1', title: 'Durable task', date: '2026-08-26', done: false, subtasks: [] }]);
+  app.DM.fallback = false;
+
+  app.DM.save();
+  assert.equal(app.DM.savePending, true);
+  assert.equal(await app.DM.flush(), true);
+  assert.ok(directory.files.has('outline-data.json'));
+
+  directory.failWrites = 2;
+  directory.failWritesFor = 'outline-data.json';
+  app.DM.save();
+  assert.equal(await app.DM.flush(), true);
+  assert.equal(directory.failWrites, 0);
+
+  app.DM.fallback = true;
+  app.storage.setItem('pvp_journal', JSON.stringify({ '2026-08-26': { text: 'Saved journal' } }));
+  app.DM.fallback = false;
+  app.DM.saveJournal();
+  assert.equal(await app.DM.flushJournal(), true);
+  assert.ok(directory.files.has('outline-journal.json'));
 });
 
 test('data backups rotate and corrupted primary data recovers from both backup slots', async () => {
