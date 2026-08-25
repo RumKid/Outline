@@ -1,0 +1,8 @@
+{
+  "name": "outline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/outline.test.js"
+  }
+}
