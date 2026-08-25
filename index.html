@@ -326,6 +326,8 @@
     .task-item.done .task-title-txt { text-decoration:line-through; color:var(--text-muted); }
     .task-del { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:3px 5px; border-radius:5px; font-size:14px; transition:var(--t); }
     .task-del:hover { color:var(--danger); background:rgba(239,68,68,0.08); }
+    .task-move { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:3px 5px; border-radius:5px; font-size:11px; font-family:inherit; transition:var(--t); white-space:nowrap; }
+    .task-move:hover { color:var(--tasks); background:var(--tasks-dim); }
     .add-subtask-btn { background:none; border:none; color:var(--text-secondary); cursor:pointer; padding:3px 5px; border-radius:5px; font-size:16px; transition:var(--t); display:inline-flex; align-items:center; justify-content:center; }
     .add-subtask-btn:hover { color:var(--accent); background:rgba(255,255,255,0.06); }
     .pbar-labels { display:flex; justify-content:space-between; font-size:12px; color:var(--text-secondary); margin-bottom:8px; }
@@ -879,6 +881,11 @@ function thisWeek() {
     const d=new Date(mon); d.setDate(mon.getDate()+i);
     return d.toISOString().split('T')[0];
   });
+}
+function addDays(dateStr, amount) {
+  const d = new Date((dateStr || today()) + 'T12:00:00');
+  d.setDate(d.getDate() + amount);
+  return d.toISOString().split('T')[0];
 }
 function escH(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -1630,6 +1637,9 @@ const S = {
       }
       return t;
     }));
+  },
+  moveTaskToDate(id, date) {
+    this.s('pvp_tasks', this.tasks().map(task => task.id === id ? { ...task, date } : task));
   },
   delTask(id){ this.s('pvp_tasks', this.tasks().filter(t=>t.id!==id)); },
   async addSubtask(parentId, title) {
@@ -2626,13 +2636,28 @@ async function vDashboard(){
 function dashAddWater(){ S.addWater(250); updateScore(); refreshView(); }
 
 /* ── TASKS ── */
+let taskViewMode = 'today';
+
+function setTaskViewMode(mode) {
+  taskViewMode = mode === 'week' ? 'week' : 'today';
+  renderView('tasks');
+}
+
+function taskViewModeButtons() {
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+    <button class="btn ${taskViewMode === 'today' ? 'btn-primary' : 'btn-ghost'}" style="padding:7px 11px;font-size:11.5px;" onclick="setTaskViewMode('today')">Today</button>
+    <button class="btn ${taskViewMode === 'week' ? 'btn-primary' : 'btn-ghost'}" style="padding:7px 11px;font-size:11.5px;" onclick="setTaskViewMode('week')">This Week</button>
+  </div>`;
+}
+
 async function vTasks(){
+  if (taskViewMode === 'week') return vWeekTasks();
   const todayTasks=S.tasks().filter(t=>t.date===today());
   const done=todayTasks.filter(t=>t.done).length;
   const pct=todayTasks.length>0?Math.round(done/todayTasks.length*100):0;
   const taskItemsHTML = (await Promise.all(todayTasks.map(t => taskHTML(t)))).join('');
   return `<div class="view-enter">
-    <div class="page-header"><h1 class="page-title">Tasks</h1><p class="page-sub">Today's focus list</p></div>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;"><div><h1 class="page-title">Tasks</h1><p class="page-sub">Today's focus list</p></div>${taskViewModeButtons()}</div>
     <div class="tasks-layout">
       <div>
         <div class="add-task-row">
@@ -2671,6 +2696,44 @@ async function vTasks(){
         </div>
       </div>
     </div>
+  </div>`;
+}
+
+/* ── PROJECTS ── */
+async function vWeekTasks() {
+  const week = thisWeek();
+  const allTasks = S.tasks();
+  const weekTasks = allTasks.filter(task => week.includes(task.date));
+  const total = weekTasks.length;
+  const done = weekTasks.filter(task => task.done).length;
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  const dayCards = await Promise.all(week.map(async date => {
+    const dayTasks = weekTasks.filter(task => task.date === date);
+    const dayDone = dayTasks.filter(task => task.done).length;
+    const dateObj = new Date(date + 'T12:00:00');
+    const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+    const isToday = date === today();
+    const items = (await Promise.all(dayTasks.map(task => taskHTML(task)))).join('');
+    return `<section class="card" style="padding:15px;min-width:0;${isToday ? 'border-color:var(--tasks);box-shadow:0 0 0 1px var(--tasks-dim);' : ''}">
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:12px;">
+        <div><div style="font-family:'Outfit',sans-serif;font-size:15px;font-weight:700;">${dayName}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${fmtDate(date)}${isToday ? ' · Today' : ''}</div></div>
+        <span style="margin-left:auto;font-size:11px;color:${dayDone === dayTasks.length && dayTasks.length > 0 ? 'var(--success)' : 'var(--text-muted)'};font-weight:700;">${dayDone}/${dayTasks.length}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">${items || '<div style="padding:18px 6px;text-align:center;color:var(--text-muted);font-size:11.5px;">No tasks</div>'}</div>
+    </section>`;
+  }));
+
+  return `<div class="view-enter">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;"><div><h1 class="page-title">Tasks</h1><p class="page-sub">Your Monday–Sunday task overview</p></div>${taskViewModeButtons()}</div>
+    <div class="add-task-row">
+      <input id="task-in" class="input" style="flex:1;" placeholder="Add a task for today..." maxlength="100" onkeydown="if(event.key==='Enter')doAddTask()">
+      <select id="task-pri" class="input" style="width:auto;"><option value="high">🔴 High</option><option value="medium" selected>🟡 Medium</option><option value="low">🟢 Low</option></select>
+      <button class="btn btn-primary" onclick="doAddTask()">+ Add</button>
+    </div>
+    <div class="card" style="margin-bottom:16px;padding:14px 16px;display:flex;align-items:center;gap:14px;">
+      <div style="font-size:12.5px;color:var(--text-secondary);">Week progress</div><div class="pbar-wrap" style="height:7px;flex:1;"><div class="pbar-fill" style="width:${pct}%;background:linear-gradient(90deg,var(--tasks),#fb7185);"></div></div><strong style="font-size:12px;color:var(--tasks);">${done}/${total} · ${pct}%</strong>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(150px,1fr));gap:12px;overflow-x:auto;padding-bottom:4px;">${dayCards.join('')}</div>
   </div>`;
 }
 
@@ -2933,6 +2996,7 @@ async function taskHTML(t){
     +'<div class="task-dot dot-'+(t.priority||'medium')+'"></div>'
     +'<span class="task-title-txt" style="flex:1;">'+escH(decryptedTitle)+fractionText+'</span>'
     +'<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleAddSubForm(\''+(t.id)+'\')" title="Add subtask">+</button>'
+    +'<button class="task-move" style="margin-right:4px;" onclick="doMoveTaskToNextDay(\''+(t.id)+'\')" title="Move to next day">Tomorrow</button>'
     +'<button class="task-del" onclick="doDelTask(\''+(t.id)+'\')">&#10005;</button>'
     +'</div>';
   return '<div class="task-container" id="tc-'+t.id+'" draggable="true" data-type="task" data-task-id="'+t.id+'">'+inner+subtasksHTML+addForm+'</div>';
@@ -2945,6 +3009,13 @@ async function doAddTask(){
   inp.value=''; refreshView(); updateScore();
 }
 function doToggleTask(id){ S.toggleTask(id); refreshView(); updateScore(); }
+function doMoveTaskToNextDay(id){
+  const task = S.tasks().find(item => item.id === id);
+  if (!task) return;
+  S.moveTaskToDate(id, addDays(task.date, 1));
+  refreshView();
+  updateScore();
+}
 function doDelTask(id){ S.delTask(id); refreshView(); updateScore(); }
 
 function reorderTasks(draggedId, targetId, after) {
