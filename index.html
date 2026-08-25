@@ -856,7 +856,13 @@
    ================================================================ */
 const $ = id => document.getElementById(id);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-const today = () => new Date().toISOString().split('T')[0];
+function dateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+const today = () => dateKey();
 const clamp = (v,mn,mx) => Math.max(mn, Math.min(mx, v));
 
 function fmtDate(d) {
@@ -870,7 +876,7 @@ function fmtDuration(mins) {
 function last7() {
   return Array.from({length:7},(_,i)=>{
     const d=new Date(); d.setDate(d.getDate()-(6-i));
-    return d.toISOString().split('T')[0];
+    return dateKey(d);
   });
 }
 function thisWeek() {
@@ -879,13 +885,13 @@ function thisWeek() {
   const mon=new Date(now); mon.setDate(now.getDate()+diff);
   return Array.from({length:7},(_,i)=>{
     const d=new Date(mon); d.setDate(mon.getDate()+i);
-    return d.toISOString().split('T')[0];
+    return dateKey(d);
   });
 }
 function addDays(dateStr, amount) {
   const d = new Date((dateStr || today()) + 'T12:00:00');
   d.setDate(d.getDate() + amount);
-  return d.toISOString().split('T')[0];
+  return dateKey(d);
 }
 function escH(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -902,7 +908,7 @@ function lastWeek() {
   const mon=new Date(now); mon.setDate(now.getDate()+diff);
   return Array.from({length:7},(_,i)=>{
     const d=new Date(mon); d.setDate(mon.getDate()+i);
-    return d.toISOString().split('T')[0];
+    return dateKey(d);
   });
 }
 
@@ -1713,14 +1719,14 @@ const S = {
     // Start from today if already logged, otherwise from yesterday,
     // so we always show the most recent unbroken streak.
     let d = new Date();
-    const todayStr = d.toISOString().split('T')[0];
+    const todayStr = dateKey(d);
     if (!habit.logs.includes(todayStr)) {
       // today not yet checked — start counting from yesterday
       d.setDate(d.getDate() - 1);
     }
     let n = 0;
     while (true) {
-      const ds = d.toISOString().split('T')[0];
+      const ds = dateKey(d);
       if (habit.logs.includes(ds)) {
         n++;
         d.setDate(d.getDate() - 1);
@@ -1751,7 +1757,7 @@ const S = {
     if(mins > MAX_SESSION_MINS) mins = MAX_SESSION_MINS;
     if(mins < 1) mins = 1;
     const ss=this.sessions();
-    const sessionDate = a.start.split('T')[0];
+    const sessionDate = dateKey(new Date(a.start));
     ss.push({id:uid(),date:sessionDate,start:a.start,end:end.toISOString(),mins});
     this.s('pvp_sessions',ss); this.s('pvp_active',null);
     localStorage.removeItem('pvp_last_tick');
@@ -2113,7 +2119,7 @@ function calcStreakForDate(habit, dateStr) {
   let n = 0;
   let curr = new Date(dateStr + 'T12:00:00'); // Use noon to avoid timezone shift issues
   while (true) {
-    const ds = curr.toISOString().split('T')[0];
+    const ds = dateKey(curr);
     if (habit.logs && habit.logs.includes(ds)) {
       n++;
       curr.setDate(curr.getDate() - 1);
@@ -3490,7 +3496,7 @@ function updateJournalText(text) {
 function navigateJournalDate(offset) {
   const d = new Date(journalSelectedDate + 'T12:00:00');
   d.setDate(d.getDate() + offset);
-  journalSelectedDate = d.toISOString().split('T')[0];
+  journalSelectedDate = dateKey(d);
   refreshView();
 }
 
@@ -4391,7 +4397,7 @@ async function renderView(v){
   if(curView==='study'){
     const l7=last7(),ss=S.sessions();
     makeChart('study-chart',l7.map(fmtDate),l7.map(d=>+(ss.filter(x=>x.date===d).reduce((s,x)=>s+x.mins,0)/60).toFixed(2)),'#a78bfa','h');
-    const d60=Array.from({length:60},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(59-i));return d.toISOString().split('T')[0];});
+    const d60=Array.from({length:60},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(59-i));return dateKey(d);});
     const d60Labels=d60.map(d=>{const p=d.split('-');return `${p[1]}/${p[2]}`;});
     const d60Data=d60.map(d=>+(ss.filter(x=>x.date===d).reduce((s,x)=>s+x.mins,0)/60).toFixed(2));
     makeLineChart('study-chart-60',d60Labels,d60Data,'h');
@@ -4460,7 +4466,7 @@ function recoverStaleSession() {
     // Session was left running too long — auto-stop it with capped duration
     const mins = MAX_SESSION_MINS;
     const ss = S.sessions();
-    const sessionDate = a.start.split('T')[0]; // use the date it was started
+    const sessionDate = dateKey(new Date(a.start)); // use the local date it was started
     ss.push({id:uid(), date:sessionDate, start:a.start, end:new Date().toISOString(), mins});
     S.s('pvp_sessions', ss);
     S.s('pvp_active', null);
