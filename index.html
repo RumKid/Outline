@@ -815,7 +815,7 @@
       </a>
     </nav>
     <div class="sidebar-footer">
-      <div class="data-status" id="data-status-badge" onclick="pickFolder(true)" title="Click to change data folder">
+      <div class="data-status" id="data-status-badge" onclick="handleDataStatusClick()" title="Click to retry saving or change data folder">
         <div class="data-dot disconnected" id="data-dot"></div>
         <div>
           <div class="data-status-txt" id="data-status-txt">Not connected</div>
@@ -1278,6 +1278,14 @@ const DM = {
   fallback: false,          // true = localStorage-only mode
   saveTimer: null,
   saveJournalTimer: null,
+  saveInFlight: null,
+  journalSaveInFlight: null,
+  savePending: false,
+  journalSavePending: false,
+  saveRetryTimer: null,
+  journalRetryTimer: null,
+  saveRetryCount: 0,
+  journalRetryCount: 0,
 
   // ── IndexedDB: persist the directory handle ──────────────────
   _dbProm: null,
@@ -1383,42 +1391,84 @@ const DM = {
   },
 
   // ── Write data to file ────────────────────────────────────────
-  async save() {
-    if (this.fallback || !this.dirHandle) return;
+  save() {
+    if (this.fallback || !this.dirHandle) return Promise.resolve(false);
     compileDailySummaries();
-    // Debounce saves — wait 800ms after last change
+    this.savePending = true;
+    this.saveRetryCount = 0;
+    clearTimeout(this.saveRetryTimer);
+    this.saveRetryTimer = null;
     clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => this._doSave(), 800);
+    this.setStatus('saving', 'Changes pending', 'Saving soon…');
+    this.saveTimer = setTimeout(() => this.flush(), 800);
+    return this.saveInFlight || Promise.resolve(true);
+  },
+
+  async flush() {
+    if (this.fallback || !this.dirHandle) return false;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    clearTimeout(this.saveRetryTimer);
+    this.saveRetryTimer = null;
+    if (this.saveInFlight) {
+      const result = await this.saveInFlight;
+      if (result && this.savePending) return this.flush();
+      return result;
+    }
+    if (!this.savePending) return true;
+    this.savePending = false;
+    this.saveInFlight = this._doSave().finally(() => {
+      this.saveInFlight = null;
+    });
+    const result = await this.saveInFlight;
+    if (result && this.savePending) return this.flush();
+    return result;
+  },
+
+  scheduleSaveRetry() {
+    clearTimeout(this.saveRetryTimer);
+    const delay = Math.min(30000, 2000 * (2 ** Math.min(this.saveRetryCount - 1, 4)));
+    this.saveRetryTimer = setTimeout(() => this.flush(), delay);
   },
 
   async _doSave() {
-    if (!this.dirHandle) return;
-    this.setStatus('saving', 'Saving…', '');
-    try {
-      const data = {
-        tasks:          S.g('pvp_tasks')           || [],
-        habits:         S.g('pvp_habits')          || [],
-        water:          S.g('pvp_water')           || {},
-        sessions:       S.g('pvp_sessions')        || [],
-        active:         S.g('pvp_active'),
-        sleep:          S.g('pvp_sleep')           || {},
-        intentions:     S.g('pvp_intentions')      || {},
-        dailySummaries: S.g('pvp_daily_summaries') || {},
-        wealth:         S.g('pvp_wealth')          || { accounts:[], transactions:[], budgets:{}, categories:getDefaultWealthCategories() },
-        projects:       S.g('pvp_projects')        || [],
-        ideas:          (() => { const r = localStorage.getItem('pvp_ideas'); return r ? JSON.parse(r) : []; })(),
-        savedAt:        new Date().toISOString(),
-      };
-      const fh = await this.dirHandle.getFileHandle(this.fileName, { create: true });
-      const wr = await fh.createWritable();
-      await wr.write(JSON.stringify(data, null, 2));
-      await wr.close();
-      const now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-      this.setStatus('connected', 'Saved to folder', `Last saved ${now}`);
-    } catch(e) {
-      console.error('Save failed:', e);
-      this.setStatus('disconnected', 'Save failed', 'Click to reconnect');
+    if (!this.dirHandle) return false;
+    this.setStatus('saving', 'Saving…', 'Writing to folder');
+    const data = {
+      tasks:          S.g('pvp_tasks')           || [],
+      habits:         S.g('pvp_habits')          || [],
+      water:          S.g('pvp_water')           || {},
+      sessions:       S.g('pvp_sessions')        || [],
+      active:         S.g('pvp_active'),
+      sleep:          S.g('pvp_sleep')           || {},
+      intentions:     S.g('pvp_intentions')      || {},
+      dailySummaries: S.g('pvp_daily_summaries') || {},
+      wealth:         S.g('pvp_wealth')          || { accounts:[], transactions:[], budgets:{}, categories:getDefaultWealthCategories() },
+      projects:       S.g('pvp_projects')        || [],
+      ideas:          (() => { const r = localStorage.getItem('pvp_ideas'); return r ? JSON.parse(r) : []; })(),
+      savedAt:        new Date().toISOString(),
+    };
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const fh = await this.dirHandle.getFileHandle(this.fileName, { create: true });
+        const wr = await fh.createWritable();
+        await wr.write(JSON.stringify(data, null, 2));
+        await wr.close();
+        this.saveRetryCount = 0;
+        const now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+        this.setStatus('connected', 'Saved to folder', `Last saved ${now}`);
+        return true;
+      } catch(e) {
+        console.error(`Save attempt ${attempt} failed:`, e);
+        if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+      }
     }
+    this.savePending = true;
+    this.saveRetryCount++;
+    this.scheduleSaveRetry();
+    this.setStatus('disconnected', 'Save failed', 'Retrying automatically · click to retry');
+    return false;
   },
 
   // ── Read journal from file ────────────────────────────────────
@@ -1434,25 +1484,70 @@ const DM = {
   },
 
   // ── Write journal to file ─────────────────────────────────────
-  async saveJournal() {
-    if (this.fallback || !this.dirHandle) return;
+  saveJournal() {
+    if (this.fallback || !this.dirHandle) return Promise.resolve(false);
+    this.journalSavePending = true;
+    this.journalRetryCount = 0;
+    clearTimeout(this.journalRetryTimer);
+    this.journalRetryTimer = null;
     clearTimeout(this.saveJournalTimer);
-    this.saveJournalTimer = setTimeout(() => this._doSaveJournal(), 800);
+    this.saveJournalTimer = setTimeout(() => this.flushJournal(), 800);
+    return this.journalSaveInFlight || Promise.resolve(true);
+  },
+
+  async flushJournal() {
+    if (this.fallback || !this.dirHandle) return false;
+    clearTimeout(this.saveJournalTimer);
+    this.saveJournalTimer = null;
+    clearTimeout(this.journalRetryTimer);
+    this.journalRetryTimer = null;
+    if (this.journalSaveInFlight) {
+      const result = await this.journalSaveInFlight;
+      if (result && this.journalSavePending) return this.flushJournal();
+      return result;
+    }
+    if (!this.journalSavePending) return true;
+    this.journalSavePending = false;
+    this.journalSaveInFlight = this._doSaveJournal().finally(() => {
+      this.journalSaveInFlight = null;
+    });
+    const result = await this.journalSaveInFlight;
+    if (result && this.journalSavePending) return this.flushJournal();
+    return result;
+  },
+
+  scheduleJournalRetry() {
+    clearTimeout(this.journalRetryTimer);
+    const delay = Math.min(30000, 2000 * (2 ** Math.min(this.journalRetryCount - 1, 4)));
+    this.journalRetryTimer = setTimeout(() => this.flushJournal(), delay);
   },
 
   async _doSaveJournal() {
-    if (!this.dirHandle) return;
-    try {
-      // Write whatever is in localStorage (may be encrypted blob or plain)
-      const raw = localStorage.getItem('pvp_journal');
-      const data = raw ? JSON.parse(raw) : {};
-      const fh = await this.dirHandle.getFileHandle(this.journalFileName, { create: true });
-      const wr = await fh.createWritable();
-      await wr.write(JSON.stringify(data, null, 2));
-      await wr.close();
-    } catch(e) {
-      console.error('Journal save failed:', e);
+    if (!this.dirHandle) return false;
+    const raw = localStorage.getItem('pvp_journal');
+    const data = raw ? JSON.parse(raw) : {};
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const fh = await this.dirHandle.getFileHandle(this.journalFileName, { create: true });
+        const wr = await fh.createWritable();
+        await wr.write(JSON.stringify(data, null, 2));
+        await wr.close();
+        this.journalRetryCount = 0;
+        return true;
+      } catch(e) {
+        console.error(`Journal save attempt ${attempt} failed:`, e);
+        if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+      }
     }
+    this.journalSavePending = true;
+    this.journalRetryCount++;
+    this.scheduleJournalRetry();
+    this.setStatus('disconnected', 'Journal save failed', 'Retrying automatically · click to retry');
+    return false;
+  },
+
+  async flushAll() {
+    await Promise.allSettled([this.flush(), this.flushJournal()]);
   },
 
   async loadAll() {
@@ -1516,6 +1611,14 @@ const DM = {
 /* ================================================================
    SETUP FLOW
    ================================================================ */
+function handleDataStatusClick() {
+  if (DM.savePending || DM.journalSavePending) {
+    DM.flushAll();
+    return;
+  }
+  pickFolder(true);
+}
+
 async function pickFolder(isChange) {
   const btn = $('setup-pick-btn');
   if (btn) btn.textContent = '⏳  Opening folder picker…';
@@ -4532,10 +4635,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (S.activeSession()) {
       S.stopSession();
     }
+    DM.flushAll();
+  });
+
+  window.addEventListener('pagehide', () => {
+    DM.flushAll();
   });
 
   // Check heartbeat on visibility change to catch sleep/wake cycles instantly.
   document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      DM.flushAll();
+      return;
+    }
     if (document.visibilityState === 'visible' && S.activeSession()) {
       const lastTick = Number(localStorage.getItem('pvp_last_tick'));
       if (lastTick) {
