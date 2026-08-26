@@ -10,6 +10,7 @@ const storageScript = await readFile(new URL('../src/storage.js', import.meta.ur
 const tasksScript = await readFile(new URL('../src/tasks.js', import.meta.url), 'utf8');
 const projectsScript = await readFile(new URL('../src/projects.js', import.meta.url), 'utf8');
 const wealthScript = await readFile(new URL('../src/wealth.js', import.meta.url), 'utf8');
+const viewsScript = await readFile(new URL('../src/views.js', import.meta.url), 'utf8');
 const appScript = await readFile(new URL('../app.js', import.meta.url), 'utf8');
 const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
 assert.ok(appScript, 'Outline app script should be present');
@@ -100,7 +101,7 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab };`, context);
+  vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab };`, context);
   return { ...context.__outline, storage, content };
 }
 

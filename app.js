@@ -4158,8 +4158,10 @@ async function renderView(v){
   }
 
   // Async-capable view map
-  const syncMap  = {habits:vHabits, water:vWater, study:vStudy, sleep:vSleep};
-  const asyncMap = {journal:vJournal, ideas:vIdeas, dashboard:vDashboard, tasks:vTasks, projects:vProjects, wealth:vWealth, settings:vSettings};
+  const { sync: syncMap, async: asyncMap } = OutlineViews.registry({
+    vHabits, vWater, vStudy, vSleep, vJournal, vIdeas, vDashboard,
+    vTasks, vProjects, vWealth, vSettings
+  });
 
   let html;
   if (asyncMap[curView]) {
