@@ -149,6 +149,47 @@ test('wealth income, expense, transfer, deletion, and budget calculations stay b
   assert.equal(wealth.budgets.Food, 500);
 });
 
+test('password setup and unlock encrypt existing project subtasks', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  app.S.s('pvp_projects', [{
+    id: 'project-1',
+    title: 'Private project',
+    description: 'Private details',
+    status: 'active',
+    tasks: [{
+      id: 'project-task-1',
+      title: 'Private task',
+      done: false,
+      subtasks: [{ id: 'project-subtask-1', title: 'Private subtask', done: false }]
+    }]
+  }]);
+
+  await app.Auth.setPassword('correct horse battery', {}, []);
+  let stored = JSON.parse(app.storage.getItem('pvp_projects'));
+  assert.equal(stored[0].tasks[0].subtasks[0].title._enc, true);
+  assert.equal(await app.Auth.decrypt(stored[0].tasks[0].subtasks[0].title), 'Private subtask');
+
+  app.Auth.lock();
+  app.S.s('pvp_projects', [{
+    id: 'project-1',
+    title: stored[0].title,
+    description: stored[0].description,
+    status: 'active',
+    tasks: [{
+      id: 'project-task-1',
+      title: stored[0].tasks[0].title,
+      done: false,
+      subtasks: [{ id: 'project-subtask-2', title: 'Added while legacy', done: false }]
+    }]
+  }]);
+  app.S.clearCache();
+  assert.equal(await app.Auth.unlock('correct horse battery'), true);
+  stored = JSON.parse(app.storage.getItem('pvp_projects'));
+  assert.equal(stored[0].tasks[0].subtasks[0].title._enc, true);
+  assert.equal(await app.Auth.decrypt(stored[0].tasks[0].subtasks[0].title), 'Added while legacy');
+});
+
 test('durable saves flush pending data and retry transient write failures', async () => {
   const app = loadApp();
   const directory = createDirectory();

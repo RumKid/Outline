@@ -993,6 +993,28 @@ const Auth = (() => {
     return JSON.parse(new TextDecoder().decode(pt));
   }
 
+  async function encryptProjectSubtasks(projects, key) {
+    let modified = false;
+    const encryptedProjects = await Promise.all((projects || []).map(async project => {
+      const projectCopy = { ...project };
+      projectCopy.tasks = await Promise.all((project.tasks || []).map(async task => {
+        const taskCopy = { ...task };
+        taskCopy.subtasks = await Promise.all((task.subtasks || []).map(async subtask => {
+          const subtaskCopy = { ...subtask };
+          if (typeof subtaskCopy.title === 'string') {
+            const enc = await aesEncrypt(key, subtaskCopy.title);
+            subtaskCopy.title = { _enc: true, ...enc };
+            modified = true;
+          }
+          return subtaskCopy;
+        }));
+        return taskCopy;
+      }));
+      return projectCopy;
+    }));
+    return { encryptedProjects, modified };
+  }
+
   // ── public API ─────────────────────────────────────────────────
   return {
     hasPassword() {
@@ -1131,6 +1153,17 @@ const Auth = (() => {
               taskCopy.title = { _enc: true, ...enc };
               projectsModified = true;
             }
+            if (taskCopy.subtasks) {
+              taskCopy.subtasks = await Promise.all(taskCopy.subtasks.map(async subtask => {
+                const subtaskCopy = { ...subtask };
+                if (typeof subtaskCopy.title === 'string') {
+                  const enc = await aesEncrypt(key, subtaskCopy.title);
+                  subtaskCopy.title = { _enc: true, ...enc };
+                  projectsModified = true;
+                }
+                return subtaskCopy;
+              }));
+            }
             return taskCopy;
           }));
         }
@@ -1155,6 +1188,12 @@ const Auth = (() => {
         const result  = await aesDecrypt(key, payload);
         if (result !== VERIFY_MSG) return false;
         _cryptoKey = key;
+        const projectMigration = await encryptProjectSubtasks(S.projects(), key);
+        if (projectMigration.modified) {
+          localStorage.setItem('pvp_projects', JSON.stringify(projectMigration.encryptedProjects));
+          S._cache['pvp_projects'] = projectMigration.encryptedProjects;
+          await DM.save();
+        }
         return true;
       } catch {
         return false;
