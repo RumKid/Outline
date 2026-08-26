@@ -85,6 +85,7 @@ function loadApp(storage = createStorage()) {
     indexedDB: {},
     window: { showDirectoryPicker: null },
     navigator: {},
+    Notification: { permission: 'denied' },
     Chart: { defaults: { font: {} } },
     confirm: () => true,
     prompt: () => null,
@@ -101,7 +102,7 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState };`, context);
+  vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState, cdToggle, doToggleTimer };`, context);
   return { ...context.__outline, storage, content };
 }
 
@@ -173,6 +174,23 @@ test('study countdown restores its absolute end time after reload', () => {
   assert.equal(app.cdState.running, true);
   assert.ok(app.cdState.endTime >= endTime - 1000);
   assert.ok(app.cdState.remaining <= 45 * 60 && app.cdState.remaining > 45 * 60 - 5);
+});
+
+test('study timers do not overlap and stopping countdown records elapsed time', () => {
+  const app = loadApp();
+  app.S.startSession();
+  app.cdState.duration = 120;
+  app.cdState.remaining = 120;
+  app.cdState.running = false;
+  app.cdToggle();
+  assert.notEqual(app.S.activeSession(), null);
+  assert.equal(app.S.sessions().length, 0);
+  app.S.stopSession();
+  app.cdState.running = true;
+  app.cdState.endTime = Date.now() + 60000;
+  app.cdToggle();
+  assert.equal(app.S.sessions().length, 2);
+  assert.ok(app.S.sessions()[1].mins >= 1);
 });
 
 test('tasks persist and reload with their date and subtasks', async () => {

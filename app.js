@@ -3018,7 +3018,13 @@ function startTimerDisp(){
 }
 function doToggleTimer(){
   if(S.activeSession()){S.stopSession();clearInterval(timerIv);timerIv=null;}
-  else S.startSession();
+  else {
+    if (cdState.running) {
+      showToast('Stop the countdown before starting the stopwatch', 'info');
+      return;
+    }
+    S.startSession();
+  }
   refreshView(); updateScore();
 }
 function doDelSession(id){
@@ -3074,6 +3080,7 @@ function cdToggle() {
   if (cdState.running) {
     // Stop / Dismiss
     clearInterval(cdIv); cdIv = null;
+    cdState.remaining = Math.max(0, Math.round((cdState.endTime - Date.now()) / 1000));
     cdState.running = false;
     if (cdState.remaining > 0) {
       const elapsedSecs = cdState.duration - cdState.remaining;
@@ -3098,6 +3105,10 @@ function cdToggle() {
     refreshView();
   } else {
     // Start
+    if (S.activeSession()) {
+      showToast('Stop the stopwatch before starting the countdown', 'info');
+      return;
+    }
     if (Notification.permission === 'default') Notification.requestPermission();
     cdState.running = true;
     cdState.endTime = Date.now() + cdState.duration * 1000;
