@@ -164,7 +164,16 @@
       font-size: 16px; font-weight: 700; letter-spacing: -0.3px;
       color: var(--text-primary);
     }
-    .sidebar-nav { flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }
+    .sidebar-nav { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+    .nav-section { display:flex; flex-direction:column; gap:3px; }
+    .nav-section-label, .sidebar-footer-label {
+      padding: 0 12px 6px;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.9px;
+      text-transform: uppercase;
+    }
     .nav-item {
       display: flex; align-items: center; gap: 10px;
       padding: 10px 12px; border-radius: 6px;
@@ -189,6 +198,7 @@
     .sidebar-footer {
       padding: 12px 16px; border-top: 1px solid var(--border-default); flex-shrink: 0;
     }
+    .sidebar-footer-label { padding-left: 0; padding-right: 0; }
  
     /* Data status badge */
     .data-status {

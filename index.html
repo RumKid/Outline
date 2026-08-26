@@ -63,38 +63,54 @@
       <span class="logo-text">Outline</span>
     </div>
     <nav class="sidebar-nav">
-      <a class="nav-item" data-view="dashboard" onclick="navigate('dashboard')">
-        <span class="nav-ind"></span><span class="nav-emoji">◉</span><span>Dashboard</span>
-      </a>
-      <a class="nav-item" data-view="tasks" onclick="navigate('tasks')">
-        <span class="nav-ind"></span><span class="nav-emoji">☑</span><span>Tasks</span>
-      </a>
-      <a class="nav-item" data-view="projects" onclick="navigate('projects')">
-        <span class="nav-ind"></span><span class="nav-emoji">🗂</span><span>Projects</span>
-      </a>
-      <a class="nav-item" data-view="habits" onclick="navigate('habits')">
-        <span class="nav-ind"></span><span class="nav-emoji">🔥</span><span>Habits</span>
-      </a>
-      <a class="nav-item" data-view="water" onclick="navigate('water')">
-        <span class="nav-ind"></span><span class="nav-emoji">💧</span><span>Water</span>
-      </a>
-      <a class="nav-item" data-view="study" onclick="navigate('study')">
-        <span class="nav-ind"></span><span class="nav-emoji">⏱</span><span>Study</span>
-      </a>
-      <a class="nav-item" data-view="sleep" onclick="navigate('sleep')">
-        <span class="nav-ind"></span><span class="nav-emoji">🌙</span><span>Sleep</span>
-      </a>
-      <a class="nav-item" data-view="wealth" onclick="navigate('wealth')">
-        <span class="nav-ind"></span><span class="nav-emoji">💰</span><span>Wealth</span>
-      </a>
-      <a class="nav-item" data-view="journal" onclick="navigate('journal')">
-        <span class="nav-ind"></span><span class="nav-emoji">📖</span><span>Journal</span>
-      </a>
-      <a class="nav-item" data-view="ideas" onclick="navigate('ideas')">
-        <span class="nav-ind"></span><span class="nav-emoji">💡</span><span>Ideas</span>
-      </a>
+      <div class="nav-section">
+        <div class="nav-section-label">Overview</div>
+        <a class="nav-item" data-view="dashboard" onclick="navigate('dashboard')">
+          <span class="nav-ind"></span><span class="nav-emoji">◉</span><span>Dashboard</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">Today</div>
+        <a class="nav-item" data-view="tasks" onclick="navigate('tasks')">
+          <span class="nav-ind"></span><span class="nav-emoji">☑</span><span>Tasks</span>
+        </a>
+        <a class="nav-item" data-view="habits" onclick="navigate('habits')">
+          <span class="nav-ind"></span><span class="nav-emoji">🔥</span><span>Habits</span>
+        </a>
+        <a class="nav-item" data-view="water" onclick="navigate('water')">
+          <span class="nav-ind"></span><span class="nav-emoji">💧</span><span>Water</span>
+        </a>
+        <a class="nav-item" data-view="study" onclick="navigate('study')">
+          <span class="nav-ind"></span><span class="nav-emoji">⏱</span><span>Study</span>
+        </a>
+        <a class="nav-item" data-view="sleep" onclick="navigate('sleep')">
+          <span class="nav-ind"></span><span class="nav-emoji">🌙</span><span>Sleep</span>
+        </a>
+        <a class="nav-item" data-view="journal" onclick="navigate('journal')">
+          <span class="nav-ind"></span><span class="nav-emoji">📖</span><span>Journal</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">Projects</div>
+        <a class="nav-item" data-view="projects" onclick="navigate('projects')">
+          <span class="nav-ind"></span><span class="nav-emoji">🗂</span><span>Projects</span>
+        </a>
+        <a class="nav-item" data-view="ideas" onclick="navigate('ideas')">
+          <span class="nav-ind"></span><span class="nav-emoji">💡</span><span>Ideas</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">Money</div>
+        <a class="nav-item" data-view="wealth" onclick="navigate('wealth')">
+          <span class="nav-ind"></span><span class="nav-emoji">💰</span><span>Wealth</span>
+        </a>
+      </div>
     </nav>
     <div class="sidebar-footer">
+      <div class="sidebar-footer-label">Data</div>
       <div class="data-status" id="data-status-badge" onclick="handleDataStatusClick()" title="Click to retry saving or change data folder">
         <div class="data-dot disconnected" id="data-dot"></div>
         <div>
