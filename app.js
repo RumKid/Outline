@@ -86,6 +86,8 @@ function showToast(message, tone = 'info') {
   if (existing) existing.remove();
   const toast = document.createElement('div');
   toast.className = `outline-toast ${tone}`;
+  toast.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+  toast.setAttribute('aria-live', tone === 'error' ? 'assertive' : 'polite');
   toast.textContent = message;
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 3200);
@@ -1089,10 +1091,12 @@ const DM = {
       return;
     }
     if (this.recoveryNotice) {
+      recordRecoveryEvent(this.recoveryNotice, 'backup restored');
       this.setStatus('connected', 'Recovered backup', `${this.recoveryNotice} · ${folderName}`);
       return;
     }
     if (this.schemaMigrationNotice) {
+      recordRecoveryEvent(this.schemaMigrationNotice, 'schema migration');
       this.setStatus('connected', 'Data upgraded', `${this.schemaMigrationNotice} · ${folderName}`);
       return;
     }
@@ -1122,6 +1126,26 @@ const DM = {
 /* ================================================================
    SETUP FLOW
    ================================================================ */
+function recordRecoveryEvent(message, type) {
+  try {
+    const current = JSON.parse(localStorage.getItem('pvp_recovery_history') || '[]');
+    const entry = { message, type, at: new Date().toISOString() };
+    if (!current.some(item => item.message === message && Date.parse(item.at) > Date.now() - 60000)) {
+      localStorage.setItem('pvp_recovery_history', JSON.stringify([entry, ...current].slice(0, 20)));
+    }
+  } catch { /* recovery history is best-effort metadata */ }
+}
+
+function recoveryHistory() {
+  try { return JSON.parse(localStorage.getItem('pvp_recovery_history') || '[]'); } catch { return []; }
+}
+
+function completePrivacyChecklist() {
+  localStorage.setItem('pvp_privacy_checklist_done', '1');
+  renderView('settings');
+  showToast('Privacy checklist completed', 'success');
+}
+
 function handleDataStatusClick() {
   if (DM.savePending || DM.journalSavePending) {
     DM.flushAll();
@@ -2080,6 +2104,7 @@ function resetOutlineData() {
   Auth.lock();
   showToast('Outline data reset', 'success');
   renderView('dashboard');
+  setTimeout(() => document.querySelector('[data-view="dashboard"]')?.focus(), 0);
 }
 
 async function importFallbackBackup(event) {
@@ -2132,6 +2157,7 @@ function showBackupPreview(file) {
       preview.innerHTML = `<div class="backup-preview-card"><h2>Review backup</h2><p>Schema: ${escH(data.schemaVersion ?? 'unknown')}</p><p>Saved: ${escH(data.savedAt || data.exportedAt || 'unknown')}</p><p>Storage: ${data.values ? 'Browser storage' : 'Full Outline backup'} · ${(size / 1024).toFixed(1)} KB</p><p>Stores: ${Object.keys(values || {}).length}</p><div class="backup-preview-actions"><button class="btn btn-ghost" type="button" onclick="this.closest('.backup-preview').remove()">Cancel</button><button class="btn btn-primary" type="button" onclick="applyImportedBackup(window.__outlinePendingBackup);this.closest('.backup-preview').remove()">Restore backup</button></div></div>`;
       window.__outlinePendingBackup = data;
       document.body.appendChild(preview);
+      preview.querySelector('button.btn-primary')?.focus();
     } catch { showToast('Could not read that backup file', 'error'); }
   };
   reader.readAsText(file);
@@ -2152,10 +2178,15 @@ async function applyImportedBackup(data) {
 
 function vSettings() {
   const encrypted = Auth.hasPassword();
+  const encryptionState = encrypted ? (Auth.isUnlocked() ? 'Unlocked · encrypted' : 'Locked · encrypted') : 'Unencrypted';
+  const history = recoveryHistory();
+  const checklist = localStorage.getItem('pvp_privacy_checklist_done') !== '1';
   return `<div class="view-enter"><div class="page-header"><h1 class="page-title">Settings &amp; Data</h1><p class="page-sub">Control storage, encryption, backups, and recovery.</p></div>
     <div class="settings-grid">
       <section class="card settings-card"><div class="sec-label">Storage</div><h2>${DM.fallback ? 'Browser storage' : 'File storage'}</h2><p class="settings-help">${DM.fallback ? 'Data is stored in this browser. Export backups regularly.' : `Data is stored in ${escH(DM.dirHandle?.name || 'your selected folder')}.`}</p><div class="settings-actions"><button class="btn btn-primary" type="button" onclick="DM.exportCurrentData()">Download full backup</button><button class="btn btn-ghost" type="button" onclick="$('settings-import-input').click()">Restore backup</button><input id="settings-import-input" type="file" accept="application/json" hidden onchange="showBackupPreview(this.files[0])"></div><button class="btn btn-ghost" type="button" onclick="showStorageDiagnostics()">Run storage diagnostics</button></section>
-    <section class="card settings-card"><div class="sec-label">Encryption</div><h2>${encrypted ? 'Vault encryption enabled' : 'Vault not configured'}</h2><p class="settings-help">${encrypted ? 'Your personal data is encrypted while stored locally.' : 'Set a password to encrypt personal data and require unlock access.'}</p>${encrypted ? `<input id="settings-new-password" class="input" type="password" placeholder="New password" autocomplete="new-password"><input id="settings-confirm-password" class="input" type="password" placeholder="Confirm new password" autocomplete="new-password"><button class="btn btn-primary" type="button" onclick="doRotatePassword()">Change password</button><div id="settings-password-error" class="settings-error" role="alert"></div>` : `<button class="btn btn-primary" type="button" onclick="renderView('dashboard')">Set password from a protected section</button>`}</section>
+    <section class="card settings-card"><div class="sec-label">Encryption status</div><h2>${encryptionState}</h2><p class="settings-help">${encrypted ? 'Your personal data is encrypted locally. Keep your password safe; it cannot be recovered.' : 'Set a password to encrypt personal data and require unlock access.'}</p>${encrypted ? `<input id="settings-new-password" class="input" type="password" placeholder="New password" autocomplete="new-password"><input id="settings-confirm-password" class="input" type="password" placeholder="Confirm new password" autocomplete="new-password"><button class="btn btn-primary" type="button" onclick="doRotatePassword()">Change password</button><div id="settings-password-error" class="settings-error" role="alert"></div>` : `<button class="btn btn-primary" type="button" onclick="renderView('dashboard')">Set password from a protected section</button>`}</section>
+    ${checklist ? `<section class="card settings-card checklist-card"><div class="sec-label">First-run privacy checklist</div><label><input type="checkbox"> I understand Outline stores data locally.</label><label><input type="checkbox"> I will export backups before resetting or changing browsers.</label><label><input type="checkbox"> I understand forgotten encryption passwords cannot be recovered.</label><button class="btn btn-primary" type="button" onclick="completePrivacyChecklist()">I understand</button></section>` : ''}
+    <section class="card settings-card recovery-card"><div class="sec-label">Recovery history</div>${history.length ? `<ul>${history.map(item => `<li><strong>${escH(item.type)}</strong> — ${escH(item.message)}<span>${escH(new Date(item.at).toLocaleString())}</span></li>`).join('')}</ul>` : '<p class="settings-help">No backups or migrations have been restored yet.</p>'}</section>
     <section class="card settings-card danger-zone"><div class="sec-label">Danger zone</div><p class="settings-help">Reset removes Outline data from this browser. Export a backup first.</p><button class="btn btn-ghost" type="button" onclick="resetOutlineData()">Reset browser data</button></section></div></div>`;
 }
 
