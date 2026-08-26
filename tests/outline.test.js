@@ -101,7 +101,7 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab };`, context);
+  vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState };`, context);
   return { ...context.__outline, storage, content };
 }
 
@@ -163,6 +163,16 @@ test('HTML escaping protects text, attributes, and inline handler arguments', ()
   assert.equal(escH(payload), '&quot;&gt;&lt;img src=x onerror=alert(1)&gt; &amp; &#39;quoted&#39;');
   assert.equal(eventArg(payload), '&quot;\\&quot;&gt;&lt;img src=x onerror=alert(1)&gt; &amp; &#39;quoted&#39;&quot;');
   assert.doesNotMatch(eventArg(payload), /(^|[^&])"/);
+});
+
+test('study countdown restores its absolute end time after reload', () => {
+  const endTime = Date.now() + 45 * 60 * 1000;
+  const app = loadApp(createStorage({
+    pvp_countdown: { duration: 45 * 60, remaining: 45 * 60, running: true, endTime }
+  }));
+  assert.equal(app.cdState.running, true);
+  assert.ok(app.cdState.endTime >= endTime - 1000);
+  assert.ok(app.cdState.remaining <= 45 * 60 && app.cdState.remaining > 45 * 60 - 5);
 });
 
 test('tasks persist and reload with their date and subtasks', async () => {

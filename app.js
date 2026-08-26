@@ -3027,7 +3027,22 @@ function doDelSession(id){
 }
 
 /* ── COUNTDOWN TIMER ── */
-let cdState = { duration: 25*60, remaining: 25*60, running: false, endTime: null };
+function loadCountdownState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('pvp_countdown') || 'null');
+    if (!saved || typeof saved.duration !== 'number') return { duration: 25 * 60, remaining: 25 * 60, running: false, endTime: null };
+    if (saved.running && typeof saved.endTime === 'number') {
+      return { duration: saved.duration, remaining: Math.max(0, Math.round((saved.endTime - Date.now()) / 1000)), running: true, endTime: saved.endTime };
+    }
+    return { duration: saved.duration, remaining: saved.remaining ?? saved.duration, running: false, endTime: null };
+  } catch {
+    return { duration: 25 * 60, remaining: 25 * 60, running: false, endTime: null };
+  }
+}
+function saveCountdownState() {
+  localStorage.setItem('pvp_countdown', JSON.stringify(cdState));
+}
+let cdState = loadCountdownState();
 let cdIv = null;
 
 function fmtCD(secs) {
@@ -3040,6 +3055,7 @@ function cdSetDuration(mins) {
   if (cdState.running) return;
   cdState.duration = mins * 60;
   cdState.remaining = mins * 60;
+  saveCountdownState();
   refreshView();
 }
 
@@ -3049,6 +3065,7 @@ function cdCustomDuration() {
   if (!isNaN(v) && v > 0 && v <= 180) {
     cdState.duration = v * 60;
     cdState.remaining = v * 60;
+    saveCountdownState();
     refreshView();
   }
 }
@@ -3076,6 +3093,8 @@ function cdToggle() {
       }
     }
     cdState.remaining = cdState.duration;
+    cdState.endTime = null;
+    saveCountdownState();
     refreshView();
   } else {
     // Start
@@ -3083,6 +3102,7 @@ function cdToggle() {
     cdState.running = true;
     cdState.endTime = Date.now() + cdState.duration * 1000;
     cdState.remaining = cdState.duration;
+    saveCountdownState();
     cdStartTick();
   }
 }
@@ -3102,6 +3122,9 @@ function cdStartTick() {
     if (arc) arc.setAttribute('stroke-dashoffset', circ * pct);
     if (cdState.remaining <= 0) {
       clearInterval(cdIv); cdIv = null;
+      cdState.running = false;
+      cdState.endTime = null;
+      saveCountdownState();
       el.classList.add('done');
       if (status) status.textContent = "TIME'S UP!";
       cdNotify();
@@ -4186,6 +4209,7 @@ async function renderView(v){
     makeLineChart('study-chart-60',d60Labels,d60Data,'h');
     startTimerDisp();
     if(cdState.running && cdState.remaining > 0) cdStartTick();
+    if(cdState.running && cdState.remaining <= 0) cdStartTick();
   }
   if(curView==='sleep'){
     const l7=last7(),slMap=S.sleepMap();
