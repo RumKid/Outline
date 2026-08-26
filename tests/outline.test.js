@@ -95,7 +95,7 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects };`, context);
+  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab };`, context);
   return { ...context.__outline, storage, content };
 }
 
@@ -114,6 +114,25 @@ test('the standalone app has no remote runtime dependencies', () => {
   assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|new\s+Chart\s*\(/);
   assert.match(appScript, /function makeSvgChart\(/);
   assert.match(styles, /\.offline-chart\s*\{[^}]*width:100%;[^}]*height:100%;/);
+});
+
+test('Settings UI exposes storage, security, and recovery controls', async () => {
+  const app = loadApp();
+  const markup = app.vSettings();
+  assert.match(markup, /Storage/);
+  assert.match(markup, /Security/);
+  assert.match(markup, /Recovery/);
+  assert.match(markup, /Download full backup/);
+  await app.setSettingsTab('recovery');
+  assert.match(app.content.innerHTML, /Recovery history/);
+  assert.match(html, /data-view="settings"/);
+  assert.doesNotMatch(html, /data-actions/);
+});
+
+test('reconnect flow has explicit failure and timeout fallbacks', () => {
+  assert.match(appScript, /Reconnect failed · using browser storage/);
+  assert.match(appScript, /Reconnect timed out · using browser storage/);
+  assert.match(appScript, /8000/);
 });
 
   test('browser smoke rendering produces the Study view', async () => {
