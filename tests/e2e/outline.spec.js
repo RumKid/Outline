@@ -56,3 +56,14 @@ test('sets and rotates the encryption password through the UI', async ({ page })
   await page.getByRole('button', { name: 'Change password' }).click();
   await expect(page.getByText('Password changed and vault re-encrypted')).toBeVisible();
 });
+
+test('keeps navigation usable on mobile and closes backup dialogs with Escape', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible();
+  await page.getByRole('button', { name: 'Settings & Data' }).click();
+  await page.getByRole('tab', { name: 'Storage' }).click();
+  await page.locator('#settings-import-input').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ schemaVersion: 1, values: {} })) });
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+});

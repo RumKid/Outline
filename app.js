@@ -4378,6 +4378,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (action === 'restore-permission') restorePermission();
     if (action === 'data-status') handleDataStatusClick();
   });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      const dialog = document.querySelector('.backup-preview');
+      if (dialog) { dialog.remove(); $('settings-import-input')?.focus(); }
+    }
+  });
   initDate();
   recoverStaleSession();
 
