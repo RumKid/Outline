@@ -5,7 +5,7 @@ import { webcrypto } from 'node:crypto';
 import vm from 'node:vm';
 
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-const appScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+const appScript = await readFile(new URL('../app.js', import.meta.url), 'utf8');
 assert.ok(appScript, 'Outline app script should be present');
 
 function createStorage(initial = {}) {
@@ -105,9 +105,10 @@ test('local date helpers use the local calendar date', () => {
 });
 
 test('the standalone app has no remote runtime dependencies', () => {
-  assert.doesNotMatch(html, /fonts\.googleapis\.com|cdn\.jsdelivr\.net/);
-  assert.doesNotMatch(html, /\bfetch\s*\(|XMLHttpRequest|new\s+Chart\s*\(/);
-  assert.match(html, /function makeSvgChart\(/);
+  const source = `${html}\n${appScript}`;
+  assert.doesNotMatch(source, /fonts\.googleapis\.com|cdn\.jsdelivr\.net/);
+  assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|new\s+Chart\s*\(/);
+  assert.match(appScript, /function makeSvgChart\(/);
 });
 
 test('HTML escaping protects text, attributes, and inline handler arguments', () => {
