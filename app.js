@@ -4376,22 +4376,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     DM.setStatus('browser', 'Reconnecting…', 'Click anywhere');
 
     // One-shot: on first user interaction, silently request permission
-    const silentRestore = async () => {
+    let restorePending = true;
+    let restoreTimeout;
+    const finishFallback = (message = 'File access unavailable') => {
+      if (!restorePending) return;
+      restorePending = false;
+      clearTimeout(restoreTimeout);
       document.removeEventListener('click', silentRestore, true);
       document.removeEventListener('keydown', silentRestore, true);
-      const ok = await DM.requestPermission();
-      if (ok) {
+      DM.fallback = true;
+      DM.setStatus('browser', 'Browser storage', message);
+    };
+    const silentRestore = async () => {
+      if (!restorePending) return;
+      document.removeEventListener('click', silentRestore, true);
+      document.removeEventListener('keydown', silentRestore, true);
+      try {
+        const ok = await DM.requestPermission();
+        if (!ok) { finishFallback('File access denied · using browser storage'); return; }
         await DM.loadAll();
+        restorePending = false;
+        clearTimeout(restoreTimeout);
         DM.setConnectedStatus(DM.dirHandle.name);
         refreshView();
-      } else {
-        // Permission denied — fall back to localStorage silently
-        DM.fallback = true;
-        DM.setStatus('browser', 'Browser storage', 'File access denied');
+      } catch (error) {
+        console.warn('Reconnect failed:', error);
+        finishFallback('Reconnect failed · using browser storage');
       }
     };
     document.addEventListener('click', silentRestore, true);
     document.addEventListener('keydown', silentRestore, true);
+    restoreTimeout = setTimeout(() => finishFallback('Reconnect timed out · using browser storage'), 8000);
   } else {
     // Fallback mode
     $('setup-overlay').classList.add('hidden');
