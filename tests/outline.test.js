@@ -104,6 +104,12 @@ test('local date helpers use the local calendar date', () => {
   assert.equal(thisWeek().length, 7);
 });
 
+test('the standalone app has no remote runtime dependencies', () => {
+  assert.doesNotMatch(html, /fonts\.googleapis\.com|cdn\.jsdelivr\.net/);
+  assert.doesNotMatch(html, /\bfetch\s*\(|XMLHttpRequest|new\s+Chart\s*\(/);
+  assert.match(html, /function makeSvgChart\(/);
+});
+
 test('HTML escaping protects text, attributes, and inline handler arguments', () => {
   const { escH, eventArg } = loadApp();
   const payload = `\"><img src=x onerror=alert(1)> & 'quoted'`;

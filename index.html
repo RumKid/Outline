@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Outline — Personal Productivity OS</title>
   <meta name="description" content="Your personal visual productivity operating system. Less reading. More seeing.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -2746,61 +2742,61 @@ function ring({size=80,sw=9,pct=0,color='#ffffff',val='',unit=''}){
 /* ================================================================
    CHART FACTORY
    ================================================================ */
-Chart.defaults.font.family="'Plus Jakarta Sans',sans-serif";
 const chartI={};
-function makeChart(id,labels,data,color,unit=''){
-  if(chartI[id]){chartI[id].destroy();}
-  const ctx=$(id); if(!ctx) return;
-  chartI[id]=new Chart(ctx,{
-    type:'bar',
-    data:{labels,datasets:[{data,backgroundColor:'rgba(255,255,255,0.06)',borderColor:'#e4e4e7',borderWidth:1.2,borderRadius:4,borderSkipped:false}]},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{
-        backgroundColor:'#17171a',titleColor:'#f4f4f5',bodyColor:'#9f9faf',
-        borderColor:'#242428',borderWidth:1,padding:10,cornerRadius:6,displayColors:false,
-        callbacks:{label:c=>`${c.parsed.y}${unit}`}
-      }},
-      scales:{
-        x:{grid:{display:false},border:{display:false},ticks:{color:'#52525b',font:{size:10,family:"'JetBrains Mono',monospace"}}},
-        y:{beginAtZero:true,grid:{color:'rgba(255,255,255,0.02)'},border:{display:false},ticks:{color:'#52525b',font:{size:10,family:"'JetBrains Mono',monospace"}}}
-      }
-    }
-  });
+function chartNode(name, attrs = {}, text = '') {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+  Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
+  if (text) node.textContent = text;
+  return node;
 }
 
-function makeLineChart(id,labels,data,unit=''){
-  if(chartI[id]){chartI[id].destroy();}
-  const ctx=$(id); if(!ctx) return;
-  chartI[id]=new Chart(ctx,{
-    type:'line',
-    data:{labels,datasets:[{
-      data,
-      borderColor:'#e4e4e7',
-      borderWidth:1.5,
-      pointRadius:0,
-      pointHoverRadius:4,
-      pointHoverBackgroundColor:'#ffffff',
-      pointHoverBorderColor:'#ffffff',
-      fill:true,
-      backgroundColor:'rgba(255,255,255,0.03)',
-      tension:0.3
-    }]},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{
-        backgroundColor:'#17171a',titleColor:'#f4f4f5',bodyColor:'#9f9faf',
-        borderColor:'#242428',borderWidth:1,padding:10,cornerRadius:6,displayColors:false,
-        callbacks:{label:c=>`${c.parsed.y}${unit}`}
-      }},
-      scales:{
-        x:{grid:{display:false},border:{display:false},ticks:{color:'#52525b',font:{size:9,family:"'JetBrains Mono',monospace"},maxRotation:0,autoSkip:true,maxTicksLimit:10}},
-        y:{beginAtZero:true,grid:{color:'rgba(255,255,255,0.02)'},border:{display:false},ticks:{color:'#52525b',font:{size:10,family:"'JetBrains Mono',monospace"}}}
-      },
-      interaction:{mode:'index',intersect:false}
-    }
+function makeSvgChart(id, labels, data, type, unit = '') {
+  const old = chartI[id];
+  if (old) old.remove();
+  const target = $(id);
+  if (!target || !document.createElementNS) return;
+
+  const width = 600, height = 220, left = 34, right = 8, top = 12, bottom = 28;
+  const plotWidth = width - left - right, plotHeight = height - top - bottom;
+  const values = data.map(value => Number(value) || 0);
+  const max = Math.max(...values, 1);
+  const svg = chartNode('svg', {
+    viewBox: `0 0 ${width} ${height}`,
+    preserveAspectRatio: 'none',
+    class: 'offline-chart',
+    role: 'img',
+    'aria-label': `${type === 'line' ? 'Line' : 'Bar'} chart`
   });
+
+  [0, 0.5, 1].forEach(level => {
+    const y = top + plotHeight * (1 - level);
+    svg.appendChild(chartNode('line', { x1: left, x2: width - right, y1: y, y2: y, stroke: 'rgba(255,255,255,0.08)' }));
+    svg.appendChild(chartNode('text', { x: left - 6, y: y + 3, 'text-anchor': 'end', fill: '#71717a', 'font-size': 10 }, `${(max * level).toFixed(1)}${unit}`));
+  });
+
+  const xFor = index => labels.length <= 1 ? left + plotWidth / 2 : left + (plotWidth * index / (labels.length - 1));
+  if (type === 'line') {
+    const points = values.map((value, index) => `${xFor(index)},${top + plotHeight * (1 - value / max)}`).join(' ');
+    svg.appendChild(chartNode('polyline', { points, fill: 'rgba(255,255,255,0.04)', stroke: '#e4e4e7', 'stroke-width': 2 }));
+  } else {
+    const slot = plotWidth / Math.max(labels.length, 1);
+    const barWidth = Math.max(4, slot * 0.58);
+    values.forEach((value, index) => {
+      const barHeight = plotHeight * value / max;
+      svg.appendChild(chartNode('rect', { x: left + slot * index + (slot - barWidth) / 2, y: top + plotHeight - barHeight, width: barWidth, height: barHeight, rx: 4, fill: 'rgba(255,255,255,0.16)', stroke: '#e4e4e7' }));
+    });
+  }
+
+  labels.forEach((label, index) => {
+    if (labels.length > 10 && index % Math.ceil(labels.length / 10) !== 0) return;
+    svg.appendChild(chartNode('text', { x: type === 'line' ? xFor(index) : left + (plotWidth / Math.max(labels.length, 1)) * (index + 0.5), y: height - 8, 'text-anchor': 'middle', fill: '#71717a', 'font-size': 10 }, String(label)));
+  });
+  target.replaceWith(svg);
+  chartI[id] = svg;
 }
+
+function makeChart(id, labels, data, color, unit = '') { makeSvgChart(id, labels, data, 'bar', unit); }
+function makeLineChart(id, labels, data, unit = '') { makeSvgChart(id, labels, data, 'line', unit); }
 
 /* ================================================================
    WATER BOTTLE SVG
