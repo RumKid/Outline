@@ -1349,7 +1349,10 @@ const S = {
       tasks: [],
       status: 'active',
       ...project,
-      tasks: Array.isArray(project.tasks) ? project.tasks : []
+      tasks: (Array.isArray(project.tasks) ? project.tasks : []).map(task => ({
+        ...task,
+        status: task.done ? 'done' : ['backlog', 'todo', 'in-progress'].includes(task.status) ? task.status : 'backlog'
+      }))
     }));
   },
   async addProject(project) {
@@ -1388,7 +1391,7 @@ const S = {
     if (!project) return;
     const encryptedTitle = await Auth.encryptField(title);
     project.tasks = Array.isArray(project.tasks) ? project.tasks : [];
-    project.tasks.push({ id: uid(), title: encryptedTitle, priority, done: false, subtasks: [], createdAt: new Date().toISOString() });
+    project.tasks.push({ id: uid(), title: encryptedTitle, priority, status: 'backlog', done: false, subtasks: [], createdAt: new Date().toISOString() });
     this.s('pvp_projects', list);
   },
   toggleProjectTask(projectId, taskId) {
@@ -1399,7 +1402,7 @@ const S = {
       if (task.id !== taskId) return task;
       const nextDone = !task.done;
       const subtasks = (task.subtasks || []).map(subtask => ({ ...subtask, done: nextDone }));
-      return { ...task, done: nextDone, subtasks };
+      return { ...task, status: nextDone ? 'done' : 'backlog', done: nextDone, subtasks };
     });
     this.s('pvp_projects', list);
   },
@@ -1408,6 +1411,17 @@ const S = {
     const project = list.find(item => item.id === projectId);
     if (!project) return;
     project.tasks = (project.tasks || []).filter(task => task.id !== taskId);
+    this.s('pvp_projects', list);
+  },
+  setProjectTaskStatus(projectId, taskId, status) {
+    const statuses = ['backlog', 'todo', 'in-progress', 'done'];
+    if (!statuses.includes(status)) return;
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    if (!project) return;
+    project.tasks = (project.tasks || []).map(task => task.id === taskId
+      ? { ...task, status, done: status === 'done', subtasks: status === 'done' ? (task.subtasks || []).map(subtask => ({ ...subtask, done: true })) : task.subtasks }
+      : task);
     this.s('pvp_projects', list);
   },
   async addProjectSubtask(projectId, parentTaskId, title) {
@@ -2251,6 +2265,10 @@ async function vWeekTasks() {
 }
 
 /* ── PROJECTS ── */
+let projectViewMode = 'board';
+const projectStatusLabels = { backlog: 'Backlog', todo: 'To Do', 'in-progress': 'In Progress', done: 'Done' };
+function setProjectViewMode(mode) { projectViewMode = mode === 'list' ? 'list' : 'board'; refreshView(); }
+function doSetProjectTaskStatus(projectId, taskId, status) { S.setProjectTaskStatus(projectId, taskId, status); refreshView(); }
 async function vProjects() {
   const projects = await Promise.all(
     (S.projects() || [])
@@ -2274,6 +2292,32 @@ async function vProjects() {
       })
   );
 
+  const boardTasks = projects.flatMap(project => project.tasks.map(task => ({
+    ...task,
+    projectId: project.id,
+    projectTitle: project.decryptedTitle
+  })));
+  const boardHTML = `<div class="project-board">
+    ${Object.entries(projectStatusLabels).map(([status, label]) => {
+      const columnTasks = boardTasks.filter(task => task.status === status);
+      return `<section class="project-board-column" data-project-status="${status}">
+        <div class="project-board-column-head"><span>${label}</span><strong>${columnTasks.length}</strong></div>
+        <div class="project-board-items">
+          ${columnTasks.length === 0 ? '<div class="project-board-empty">No tasks</div>' : columnTasks.map(task => `<article class="project-board-task">
+            <div class="project-board-task-project">${escH(task.projectTitle)}</div>
+            <div class="project-board-task-title">${escH(task.decryptedTitle || '')}</div>
+            <div class="project-board-task-meta">
+              <span class="task-priority priority-${escH(task.priority || 'medium')}">${escH(task.priority || 'medium')}</span>
+              <select class="project-status-select" onchange="doSetProjectTaskStatus(${eventArg(task.projectId)},${eventArg(task.id)},this.value)" aria-label="Change task status">
+                ${Object.entries(projectStatusLabels).map(([value, text]) => `<option value="${value}"${value === status ? ' selected' : ''}>${text}</option>`).join('')}
+              </select>
+            </div>
+          </article>`).join('')}
+        </div>
+      </section>`;
+    }).join('')}
+  </div>`;
+
   return `<div class="view-enter">
     <div class="page-header">
       <h1 class="page-title">Projects</h1>
@@ -2289,7 +2333,18 @@ async function vProjects() {
       </div>
     </div>
 
-    ${projects.length === 0 ? `
+    <div class="project-toolbar">
+      <div>
+        <div class="sec-label" style="margin-bottom:3px;">Project workspace</div>
+        <div class="project-toolbar-sub">Move personal work from backlog to done.</div>
+      </div>
+      <div class="project-view-toggle">
+        <button class="btn ${projectViewMode === 'board' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('board')">Board</button>
+        <button class="btn ${projectViewMode === 'list' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('list')">Projects</button>
+      </div>
+    </div>
+
+    ${projectViewMode === 'board' ? boardHTML : projects.length === 0 ? `
       <div class="card">
         <div class="empty"><div class="empty-icon">🗂</div><div class="empty-txt">No active projects yet. Add the first one above.</div></div>
       </div>

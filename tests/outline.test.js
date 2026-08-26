@@ -137,6 +137,25 @@ test('tasks persist and reload with their date and subtasks', async () => {
   assert.equal(tasks[0].subtasks[0].title, 'Check persistence');
 });
 
+test('project tasks support a personal board workflow', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addProject({ id: 'project-board', title: 'Launch', description: '', status: 'active', tasks: [] });
+  await app.S.addProjectTask('project-board', 'Prepare release notes', 'high');
+
+  let project = app.S.projects()[0];
+  const taskId = project.tasks[0].id;
+  assert.equal(project.tasks[0].status, 'backlog');
+  app.S.setProjectTaskStatus('project-board', taskId, 'in-progress');
+  project = app.S.projects()[0];
+  assert.equal(project.tasks[0].status, 'in-progress');
+  assert.equal(project.tasks[0].done, false);
+  app.S.setProjectTaskStatus('project-board', taskId, 'done');
+  project = app.S.projects()[0];
+  assert.equal(project.tasks[0].status, 'done');
+  assert.equal(project.tasks[0].done, true);
+});
+
 test('wealth income, expense, transfer, deletion, and budget calculations stay balanced', async () => {
   const app = loadApp();
   app.DM.fallback = true;
