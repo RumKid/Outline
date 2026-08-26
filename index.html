@@ -33,12 +33,12 @@
       </div>
     </div>
 
-    <button class="setup-btn" id="setup-pick-btn" onclick="pickFolder(false)">
+    <button class="setup-btn" id="setup-pick-btn" data-action="pick-folder">
       📁 &nbsp;Select Data Folder
     </button>
 
     <div class="setup-fallback">
-      Don't want file saving? <button class="link-btn" type="button" onclick="useFallbackMode()">Use browser storage instead</button>
+      Don't want file saving? <button class="link-btn" type="button" data-action="fallback-mode">Use browser storage instead</button>
     </div>
   </div>
 </div>
@@ -49,9 +49,9 @@
   <div class="restore-txt">
     <strong>Resume your saved data?</strong> Outline found a previously connected data folder.
   </div>
-  <button class="restore-btn" onclick="restorePermission()">Resume →</button>
-  <button class="restore-btn" style="background:var(--bg-elevated);color:var(--text-secondary);margin-left:4px;" onclick="pickFolder(false)">Change Folder</button>
-  <button class="restore-dismiss" onclick="useFallbackMode()" title="Dismiss">✕</button>
+  <button class="restore-btn" data-action="restore-permission">Resume →</button>
+  <button class="restore-btn" data-action="pick-folder" style="background:var(--bg-elevated);color:var(--text-secondary);margin-left:4px;">Change Folder</button>
+  <button class="restore-dismiss" data-action="fallback-mode" title="Dismiss">✕</button>
 </div>
 
 <!-- ══════════════════ MAIN APP ══════════════════ -->
@@ -65,59 +65,59 @@
     <nav class="sidebar-nav">
       <div class="nav-section">
         <div class="nav-section-label">Overview</div>
-        <button class="nav-item" type="button" data-view="dashboard" onclick="navigate('dashboard')">
+        <button class="nav-item" type="button" data-view="dashboard">
           <span class="nav-ind"></span><span class="nav-emoji">◉</span><span>Dashboard</span>
         </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Today</div>
-        <button class="nav-item" type="button" data-view="tasks" onclick="navigate('tasks')">
+        <button class="nav-item" type="button" data-view="tasks">
           <span class="nav-ind"></span><span class="nav-emoji">☑</span><span>Tasks</span>
         </button>
-        <button class="nav-item" type="button" data-view="habits" onclick="navigate('habits')">
+        <button class="nav-item" type="button" data-view="habits">
           <span class="nav-ind"></span><span class="nav-emoji">🔥</span><span>Habits</span>
         </button>
-        <button class="nav-item" type="button" data-view="water" onclick="navigate('water')">
+        <button class="nav-item" type="button" data-view="water">
           <span class="nav-ind"></span><span class="nav-emoji">💧</span><span>Water</span>
         </button>
-        <button class="nav-item" type="button" data-view="study" onclick="navigate('study')">
+        <button class="nav-item" type="button" data-view="study">
           <span class="nav-ind"></span><span class="nav-emoji">⏱</span><span>Study</span>
         </button>
-        <button class="nav-item" type="button" data-view="sleep" onclick="navigate('sleep')">
+        <button class="nav-item" type="button" data-view="sleep">
           <span class="nav-ind"></span><span class="nav-emoji">🌙</span><span>Sleep</span>
         </button>
-        <button class="nav-item" type="button" data-view="journal" onclick="navigate('journal')">
+        <button class="nav-item" type="button" data-view="journal">
           <span class="nav-ind"></span><span class="nav-emoji">📖</span><span>Journal</span>
         </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Projects</div>
-        <button class="nav-item" type="button" data-view="projects" onclick="navigate('projects')">
+        <button class="nav-item" type="button" data-view="projects">
           <span class="nav-ind"></span><span class="nav-emoji">🗂</span><span>Projects</span>
         </button>
-        <button class="nav-item" type="button" data-view="ideas" onclick="navigate('ideas')">
+        <button class="nav-item" type="button" data-view="ideas">
           <span class="nav-ind"></span><span class="nav-emoji">💡</span><span>Ideas</span>
         </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Money</div>
-        <button class="nav-item" type="button" data-view="wealth" onclick="navigate('wealth')">
+        <button class="nav-item" type="button" data-view="wealth">
           <span class="nav-ind"></span><span class="nav-emoji">💰</span><span>Wealth</span>
         </button>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">System</div>
-        <button class="nav-item" type="button" data-view="settings" onclick="navigate('settings')">
+        <button class="nav-item" type="button" data-view="settings">
           <span class="nav-ind"></span><span class="nav-emoji">⚙</span><span>Settings &amp; Data</span>
         </button>
       </div>
     </nav>
     <div class="sidebar-footer">
       <div class="sidebar-footer-label">Data</div>
-      <div class="data-status" id="data-status-badge" onclick="handleDataStatusClick()" title="Click to retry saving or change data folder">
+      <div class="data-status" id="data-status-badge" data-action="data-status" title="Click to retry saving or change data folder">
         <div class="data-dot disconnected" id="data-dot"></div>
         <div>
           <div class="data-status-txt" id="data-status-txt">Not connected</div>

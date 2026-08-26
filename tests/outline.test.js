@@ -114,6 +114,9 @@ test('the standalone app has no remote runtime dependencies', () => {
   assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|new\s+Chart\s*\(/);
   assert.match(appScript, /function makeSvgChart\(/);
   assert.match(styles, /\.offline-chart\s*\{[^}]*width:100%;[^}]*height:100%;/);
+  assert.doesNotMatch(html, /\bon(?:click|keydown|change|input)=/);
+  assert.match(html, /data-action="pick-folder"/);
+  assert.match(appScript, /event\.target\.closest\('\[data-action\]'\)/);
 });
 
 test('Settings UI exposes storage, security, and recovery controls', async () => {

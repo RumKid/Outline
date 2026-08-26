@@ -4366,6 +4366,18 @@ function recoverStaleSession() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  document.addEventListener('click', event => {
+    const action = event.target.closest('[data-action]')?.dataset.action;
+    if (!action) {
+      const view = event.target.closest('[data-view]')?.dataset.view;
+      if (view) navigate(view);
+      return;
+    }
+    if (action === 'pick-folder') pickFolder(false);
+    if (action === 'fallback-mode') useFallbackMode();
+    if (action === 'restore-permission') restorePermission();
+    if (action === 'data-status') handleDataStatusClick();
+  });
   initDate();
   recoverStaleSession();
 
