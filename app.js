@@ -2422,12 +2422,12 @@ async function vWeekTasks() {
     const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
     const isToday = date === today();
     const items = (await Promise.all(dayTasks.map(task => taskHTML(task)))).join('');
-    return `<section class="card" style="padding:15px;min-width:0;${isToday ? 'border-color:var(--tasks);box-shadow:0 0 0 1px var(--tasks-dim);' : ''}">
+    return `<section class="card week-day-card${isToday ? ' is-today' : ''}">
       <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:12px;">
         <div><div style="font-family:'Outfit',sans-serif;font-size:15px;font-weight:700;">${dayName}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${fmtDate(date)}${isToday ? ' · Today' : ''}</div></div>
         <span style="margin-left:auto;font-size:11px;color:${dayDone === dayTasks.length && dayTasks.length > 0 ? 'var(--success)' : 'var(--text-muted)'};font-weight:700;">${dayDone}/${dayTasks.length}</span>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;">${items || '<div style="padding:18px 6px;text-align:center;color:var(--text-muted);font-size:11.5px;">No tasks</div>'}</div>
+      <div class="week-day-tasks">${items || '<div class="week-empty">No tasks</div>'}</div>
     </section>`;
   }));
 
@@ -2441,7 +2441,7 @@ async function vWeekTasks() {
     <div class="card" style="margin-bottom:16px;padding:14px 16px;display:flex;align-items:center;gap:14px;">
       <div style="font-size:12.5px;color:var(--text-secondary);">Week progress</div><div class="pbar-wrap" style="height:7px;flex:1;"><div class="pbar-fill" style="width:${pct}%;background:linear-gradient(90deg,var(--tasks),#fb7185);"></div></div><strong style="font-size:12px;color:var(--tasks);">${done}/${total} · ${pct}%</strong>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(7,minmax(150px,1fr));gap:12px;overflow-x:auto;padding-bottom:4px;">${dayCards.join('')}</div>
+    <div class="week-task-grid">${dayCards.join('')}</div>
   </div>`;
 }
 
