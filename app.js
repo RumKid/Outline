@@ -1848,6 +1848,16 @@ function areIntentionsEqual(a, b) {
 }
 
  OutlineTasks.install(S, { today, uid, auth: Auth });
+ OutlineWealth.install(S, {
+   auth: Auth,
+   categories: getDefaultWealthCategories,
+   accountTypes: WEALTH_ACCOUNT_TYPES,
+   currencies: WEALTH_CURRENCIES,
+   transactionTypes: WEALTH_TRANSACTION_TYPES,
+   text: isValidWealthText,
+   number: toWealthNumber,
+   date: isValidWealthDate
+ });
 
  function compileDailySummaries() {
   const summaries = S.g('pvp_daily_summaries') || {};
