@@ -91,7 +91,7 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek };`, context);
+  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg };`, context);
   return { ...context.__outline, storage };
 }
 
@@ -102,6 +102,15 @@ test('local date helpers use the local calendar date', () => {
   assert.equal(dateKey(localDate), '2026-08-26');
   assert.equal(addDays('2026-08-31', 1), '2026-09-01');
   assert.equal(thisWeek().length, 7);
+});
+
+test('HTML escaping protects text, attributes, and inline handler arguments', () => {
+  const { escH, eventArg } = loadApp();
+  const payload = `\"><img src=x onerror=alert(1)> & 'quoted'`;
+
+  assert.equal(escH(payload), '&quot;&gt;&lt;img src=x onerror=alert(1)&gt; &amp; &#39;quoted&#39;');
+  assert.equal(eventArg(payload), '&quot;\\&quot;&gt;&lt;img src=x onerror=alert(1)&gt; &amp; &#39;quoted&#39;&quot;');
+  assert.doesNotMatch(eventArg(payload), /(^|[^&])"/);
 });
 
 test('tasks persist and reload with their date and subtasks', async () => {

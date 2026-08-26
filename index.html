@@ -894,7 +894,15 @@ function addDays(dateStr, amount) {
   d.setDate(d.getDate() + amount);
   return dateKey(d);
 }
-function escH(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escH(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function eventArg(value) { return escH(JSON.stringify(String(value ?? ''))); }
 
 function getDefaultWealthCategories() {
   return {
@@ -3112,7 +3120,7 @@ async function vProjects() {
                   <h3 style="font-size:18px;font-weight:800;line-height:1.2;">${escH(project.decryptedTitle)}</h3>
                   ${project.decryptedDescription ? `<div style="margin-top:6px;font-size:13px;color:var(--text-secondary);line-height:1.5;">${escH(project.decryptedDescription)}</div>` : ''}
                 </div>
-                <button class="task-del" onclick="doCompleteProject('${project.id}')" title="Mark project complete">✓</button>
+                <button class="task-del" onclick="doCompleteProject(${eventArg(project.id)})" title="Mark project complete">✓</button>
               </div>
               <div>
                 <div class="pbar-labels"><span>${project.completed}/${project.total} tasks done</span><span style="color:var(--tasks);font-weight:700;">${progress}%</span></div>
@@ -3121,15 +3129,15 @@ async function vProjects() {
               <div style="display:flex;flex-direction:column;gap:8px;">
                 <div class="sec-label" style="margin-bottom:0;">Project Tasks</div>
                 <div class="add-task-row" style="margin-bottom:2px;">
-                  <input id="proj-task-in-${project.id}" class="input" style="flex:1;" placeholder="Add a project task" maxlength="100" onkeydown="if(event.key==='Enter')doAddProjectTask('${project.id}')">
-                  <select id="proj-task-pri-${project.id}" class="input" style="width:auto;">
+                  <input id="proj-task-in-${escH(project.id)}" class="input" style="flex:1;" placeholder="Add a project task" maxlength="100" onkeydown="if(event.key==='Enter')doAddProjectTask(${eventArg(project.id)})">
+                  <select id="proj-task-pri-${escH(project.id)}" class="input" style="width:auto;">
                     <option value="high">🔴 High</option>
                     <option value="medium" selected>🟡 Medium</option>
                     <option value="low">🟢 Low</option>
                   </select>
-                  <button class="btn btn-primary" onclick="doAddProjectTask('${project.id}')">+ Add</button>
+                  <button class="btn btn-primary" onclick="doAddProjectTask(${eventArg(project.id)})">+ Add</button>
                 </div>
-                <div class="task-list" data-project-id="${project.id}">
+                <div class="task-list" data-project-id="${escH(project.id)}">
                   ${project.tasks.length === 0
                     ? `<div class="empty" style="padding:16px 0;"><div class="empty-icon">✅</div><div class="empty-txt">No project tasks yet.</div></div>`
                     : taskItems}
@@ -3238,24 +3246,24 @@ async function projectTaskHTML(projectId, task) {
   const decryptedTitle = await Auth.decryptField(task.title, "🔒 [Locked Task]");
   var subItems = await Promise.all(subtasks.map(async function(subtask){
     const decSubTitle = await Auth.decryptField(subtask.title, "🔒 [Locked Subtask]");
-    return '<div class="subtask-item ' + (subtask.done ? 'done' : '') + '" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="proj-sti-' + subtask.id + '" draggable="true" data-type="project-subtask" data-project-id="' + projectId + '" data-parent-id="' + task.id + '" data-subtask-id="' + subtask.id + '">'
-      + '<div class="task-cb ' + (subtask.done ? 'checked' : '') + '" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleProjectSubtask(\'' + projectId + '\',\'' + task.id + '\',\'' + subtask.id + '\')">' + (subtask.done ? '&#10003;' : '') + '</div>'
+    return '<div class="subtask-item ' + (subtask.done ? 'done' : '') + '" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="proj-sti-' + escH(subtask.id) + '" draggable="true" data-type="project-subtask" data-project-id="' + escH(projectId) + '" data-parent-id="' + escH(task.id) + '" data-subtask-id="' + escH(subtask.id) + '">'
+      + '<div class="task-cb ' + (subtask.done ? 'checked' : '') + '" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',' + eventArg(subtask.id) + ')">' + (subtask.done ? '&#10003;' : '') + '</div>'
       + '<span class="task-title-txt" style="' + (subtask.done ? 'text-decoration:line-through;color:var(--text-muted);' : '') + ';flex:1;">' + escH(decSubTitle) + '</span>'
-      + '<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelProjectSubtask(\'' + projectId + '\',\'' + task.id + '\',\'' + subtask.id + '\')">&#10005;</button>'
+      + '<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',' + eventArg(subtask.id) + ')">&#10005;</button>'
       + '</div>';
   }));
   var subtasksHTML = totalSubs > 0
-    ? '<div class="subtasks-list" data-project-id="' + projectId + '" data-parent-id="' + task.id + '" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">' + subItems.join('') + '</div>'
+    ? '<div class="subtasks-list" data-project-id="' + escH(projectId) + '" data-parent-id="' + escH(task.id) + '" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">' + subItems.join('') + '</div>'
     : '';
-  var addForm = '<div class="add-subtask-form-container ' + (isFormOpen ? '' : 'hidden') + '" id="proj-asf-' + projectId + '-' + task.id + '" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="proj-subin-' + projectId + '-' + task.id + '" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddProjectSubtask(\'' + projectId + '\',\'' + task.id + '\')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddProjectSubtask(\'' + projectId + '\',\'' + task.id + '\')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleProjectSubForm(\'' + projectId + '\',\'' + task.id + '\')">Cancel</button></div></div>';
-  var inner = '<div class="task-item' + (task.done ? ' done' : '') + '" id="proj-ti-' + projectId + '-' + task.id + '">'
-    + '<div class="task-cb' + (task.done ? ' checked' : '') + '" onclick="doToggleProjectTask(\'' + projectId + '\',\'' + task.id + '\')">' + (task.done ? '&#10003;' : '') + '</div>'
+  var addForm = '<div class="add-subtask-form-container ' + (isFormOpen ? '' : 'hidden') + '" id="proj-asf-' + escH(projectId) + '-' + escH(task.id) + '" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="proj-subin-' + escH(projectId) + '-' + escH(task.id) + '" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleProjectSubForm(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">Cancel</button></div></div>';
+  var inner = '<div class="task-item' + (task.done ? ' done' : '') + '" id="proj-ti-' + escH(projectId) + '-' + escH(task.id) + '">'
+    + '<div class="task-cb' + (task.done ? ' checked' : '') + '" onclick="doToggleProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">' + (task.done ? '&#10003;' : '') + '</div>'
     + '<div class="task-dot dot-' + (task.priority || 'medium') + '"></div>'
     + '<span class="task-title-txt" style="flex:1;">' + escH(decryptedTitle) + fractionText + '</span>'
-    + '<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleProjectSubForm(\'' + projectId + '\',\'' + task.id + '\')" title="Add subtask">+</button>'
-    + '<button class="task-del" onclick="doDelProjectTask(\'' + projectId + '\',\'' + task.id + '\')">&#10005;</button>'
+    + '<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleProjectSubForm(' + eventArg(projectId) + ',' + eventArg(task.id) + ')" title="Add subtask">+</button>'
+    + '<button class="task-del" onclick="doDelProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">&#10005;</button>'
     + '</div>';
-  return '<div class="task-container" id="proj-tc-' + projectId + '-' + task.id + '" draggable="true" data-type="project-task" data-project-id="' + projectId + '" data-task-id="' + task.id + '">' + inner + subtasksHTML + addForm + '</div>';
+  return '<div class="task-container" id="proj-tc-' + escH(projectId) + '-' + escH(task.id) + '" draggable="true" data-type="project-task" data-project-id="' + escH(projectId) + '" data-task-id="' + escH(task.id) + '">' + inner + subtasksHTML + addForm + '</div>';
 }
 
 const activeSubForms = {};
@@ -3300,25 +3308,25 @@ async function taskHTML(t){
   const decryptedTitle = await Auth.decryptField(t.title, "🔒 [Locked Task]");
   var subItems=await Promise.all(subtasks.map(async function(s){
     const decSubTitle = await Auth.decryptField(s.title, "🔒 [Locked Subtask]");
-    return '<div class="subtask-item '+(s.done?'done':'')+'" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-'+s.id+'" draggable="true" data-type="subtask" data-subtask-id="'+s.id+'" data-parent-id="'+t.id+'">'
-      +'<div class="task-cb '+(s.done?'checked':'')+'" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask(\''+(t.id)+'\',\''+(s.id)+'\')">'+( s.done?'&#10003;':'')+'</div>'
+    return '<div class="subtask-item '+(s.done?'done':'')+'" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-'+escH(s.id)+'" draggable="true" data-type="subtask" data-subtask-id="'+escH(s.id)+'" data-parent-id="'+escH(t.id)+'">'
+      +'<div class="task-cb '+(s.done?'checked':'')+'" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask('+eventArg(t.id)+','+eventArg(s.id)+')">'+( s.done?'&#10003;':'')+'</div>'
       +'<span class="task-title-txt" style="'+(s.done?'text-decoration:line-through;color:var(--text-muted);':'')+';flex:1;">'+escH(decSubTitle)+'</span>'
-      +'<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelSubtask(\''+(t.id)+'\',\''+(s.id)+'\')">&#10005;</button>'
+      +'<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelSubtask('+eventArg(t.id)+','+eventArg(s.id)+')">&#10005;</button>'
       +'</div>';
   }));
   var subtasksHTML=totalSubs>0
-    ?'<div class="subtasks-list" data-parent-id="'+t.id+'" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">'+subItems.join('')+'</div>'
+    ?'<div class="subtasks-list" data-parent-id="'+escH(t.id)+'" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">'+subItems.join('')+'</div>'
     :'';
-  var addForm='<div class="add-subtask-form-container '+(isFormOpen?'':'hidden')+'" id="asf-'+t.id+'" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="subin-'+t.id+'" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddSubtask(\''+(t.id)+'\')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddSubtask(\''+(t.id)+'\')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleAddSubForm(\''+(t.id)+'\')">Cancel</button></div></div>';
-  var inner='<div class="task-item'+(t.done?' done':'')+'" id="ti-'+t.id+'">'
-    +'<div class="task-cb'+(t.done?' checked':'')+'" onclick="doToggleTask(\''+(t.id)+'\')">'+( t.done?'&#10003;':'')+'</div>'
+  var addForm='<div class="add-subtask-form-container '+(isFormOpen?'':'hidden')+'" id="asf-'+escH(t.id)+'" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="subin-'+escH(t.id)+'" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddSubtask('+eventArg(t.id)+')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddSubtask('+eventArg(t.id)+')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleAddSubForm('+eventArg(t.id)+')">Cancel</button></div></div>';
+  var inner='<div class="task-item'+(t.done?' done':'')+'" id="ti-'+escH(t.id)+'">'
+    +'<div class="task-cb'+(t.done?' checked':'')+'" onclick="doToggleTask('+eventArg(t.id)+')">'+( t.done?'&#10003;':'')+'</div>'
     +'<div class="task-dot dot-'+(t.priority||'medium')+'"></div>'
     +'<span class="task-title-txt" style="flex:1;">'+escH(decryptedTitle)+fractionText+'</span>'
-    +'<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleAddSubForm(\''+(t.id)+'\')" title="Add subtask">+</button>'
-    +'<button class="task-move" style="margin-right:4px;" onclick="doMoveTaskToNextDay(\''+(t.id)+'\')" title="Move to next day">Tomorrow</button>'
-    +'<button class="task-del" onclick="doDelTask(\''+(t.id)+'\')">&#10005;</button>'
+    +'<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleAddSubForm('+eventArg(t.id)+')" title="Add subtask">+</button>'
+    +'<button class="task-move" style="margin-right:4px;" onclick="doMoveTaskToNextDay('+eventArg(t.id)+')" title="Move to next day">Tomorrow</button>'
+    +'<button class="task-del" onclick="doDelTask('+eventArg(t.id)+')">&#10005;</button>'
     +'</div>';
-  return '<div class="task-container" id="tc-'+t.id+'" draggable="true" data-type="task" data-task-id="'+t.id+'">'+inner+subtasksHTML+addForm+'</div>';
+  return '<div class="task-container" id="tc-'+escH(t.id)+'" draggable="true" data-type="task" data-task-id="'+escH(t.id)+'">'+inner+subtasksHTML+addForm+'</div>';
 }
 
 async function doAddTask(){
@@ -3418,19 +3426,20 @@ function habitHTML(h,week){
   var rightAction = '';
   if (isDeleteHabitMode) {
     if (canDelete) {
-      rightAction = '<button class="habit-check" onclick="doDelHabit(\x27' + h.id + '\x27)" style="border-color:var(--danger);color:var(--danger);background:rgba(239,68,68,0.1);font-weight:bold;cursor:pointer;">&#10005;</button>';
+      rightAction = '<button class="habit-check" onclick="doDelHabit(' + eventArg(h.id) + ')" style="border-color:var(--danger);color:var(--danger);background:rgba(239,68,68,0.1);font-weight:bold;cursor:pointer;">&#10005;</button>';
     } else {
       rightAction = '<div style="width:38px;height:38px;flex-shrink:0;"></div>';
     }
   } else {
-    var checkStyle = done ? 'background:' + h.color + ';border-color:' + h.color + ';box-shadow:0 0 14px ' + h.color + '55;' : '';
-    rightAction = '<button class="habit-check' + (done ? ' done' : '') + '" onclick="doToggleHabit(\x27' + h.id + '\x27)" style="' + checkStyle + '">'
+    var safeColor = escH(h.color);
+    var checkStyle = done ? 'background:' + safeColor + ';border-color:' + safeColor + ';box-shadow:0 0 14px ' + safeColor + '55;' : '';
+    rightAction = '<button class="habit-check' + (done ? ' done' : '') + '" onclick="doToggleHabit(' + eventArg(h.id) + ')" style="' + checkStyle + '">'
       + (done ? '&#10003;' : '&#9675;')
       + '</button>';
   }
 
   return '<div class="habit-row">'
-    + '<div class="habit-icon-wrap" style="background:' + h.color + '22;">' + h.icon + '</div>'
+    + '<div class="habit-icon-wrap" style="background:' + escH(h.color) + '22;">' + escH(h.icon) + '</div>'
     + '<div class="habit-info">'
       + '<div class="habit-name-txt">' + escH(h.name) + '</div>'
       + '<div class="habit-streak-txt">' + streakTxt + '</div>'
@@ -3561,7 +3570,7 @@ function vStudy(){
             return `<div class="session-row">
               <span class="session-row-time">${startFmt} → ${endFmt}</span>
               <span class="session-row-dur">${fmtDuration(x.mins)}</span>
-              <button class="session-del-btn" onclick="doDelSession('${x.id}')" title="Remove session">✕</button>
+              <button class="session-del-btn" onclick="doDelSession(${eventArg(x.id)})" title="Remove session">✕</button>
             </div>`;
           }).join('')}</div>`;
         })()}
@@ -3985,20 +3994,20 @@ function ideaCardHTML(i) {
   
   if (isEditing) {
     return `<div class="idea-card editing" onclick="event.stopPropagation()">
-      <input type="text" id="edit-title-${i.id}" class="idea-edit-in" style="font-weight:700;" value="${escH(i.title)}">
-      <textarea id="edit-desc-${i.id}" class="idea-edit-in" style="height:80px;resize:vertical;">${escH(i.desc || '')}</textarea>
+      <input type="text" id="edit-title-${escH(i.id)}" class="idea-edit-in" style="font-weight:700;" value="${escH(i.title)}">
+      <textarea id="edit-desc-${escH(i.id)}" class="idea-edit-in" style="height:80px;resize:vertical;">${escH(i.desc || '')}</textarea>
       <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px;">
         <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="toggleEditIdea(null)">Cancel</button>
-        <button class="btn btn-primary" style="padding:4px 10px;font-size:11px;" onclick="doSaveIdeaEdit('${i.id}')">Save</button>
+        <button class="btn btn-primary" style="padding:4px 10px;font-size:11px;" onclick="doSaveIdeaEdit(${eventArg(i.id)})">Save</button>
       </div>
     </div>`;
   }
 
-  return `<div class="idea-card" onclick="toggleEditIdea('${i.id}')" draggable="true" data-type="idea" data-idea-id="${i.id}">
+  return `<div class="idea-card" onclick="toggleEditIdea(${eventArg(i.id)})" draggable="true" data-type="idea" data-idea-id="${escH(i.id)}">
     <div class="idea-title">${escH(i.title)}</div>
     ${i.desc ? `<div class="idea-desc">${escH(i.desc)}</div>` : ''}
     <div class="idea-actions" onclick="event.stopPropagation()">
-      <button class="idea-btn del" style="margin-left:auto;" onclick="doDelIdea('${i.id}')" title="Delete">✕</button>
+      <button class="idea-btn del" style="margin-left:auto;" onclick="doDelIdea(${eventArg(i.id)})" title="Delete">✕</button>
     </div>
   </div>`;
 }
@@ -4288,7 +4297,7 @@ async function vWealth() {
                         <div class="txn-icon">${getCategoryEmoji(t.category)}</div>
                         <div>
                           <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);">${escH(t.decryptedNote || t.category)}</div>
-                          <div style="font-size:11.5px;color:var(--text-muted);">${t.date} · ${escH(accountLabel)}</div>
+                          <div style="font-size:11.5px;color:var(--text-muted);">${escH(t.date)} · ${escH(accountLabel)}</div>
                         </div>
                       </div>
                       <div class="${isInc ? 'txn-amt-pos' : isExp ? 'txn-amt-neg' : 'txn-amt-neu'}">
@@ -4312,7 +4321,7 @@ async function vWealth() {
                 <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;">
                   <div>
                     <div style="font-size:13px;font-weight:600;">${escH(a.decryptedName)}</div>
-                    <span class="acct-type-badge">${a.type || 'Bank'}</span>
+                    <span class="acct-type-badge">${escH(a.type || 'Bank')}</span>
                   </div>
                   <div style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px;">${fmtCurrency(a.balance, a.currency || '₹')}</div>
                 </div>
@@ -4323,7 +4332,7 @@ async function vWealth() {
       </div>
     `;
   } else if (wealthActiveTab === 'transactions') {
-    const acctOptions = accounts.map(a => `<option value="${a.id}">${escH(a.decryptedName)} (${fmtCurrency(a.balance, a.currency || '₹')})</option>`).join('');
+    const acctOptions = accounts.map(a => `<option value="${escH(a.id)}">${escH(a.decryptedName)} (${fmtCurrency(a.balance, a.currency || '₹')})</option>`).join('');
     const sortedTxns = [...transactions].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     contentHTML = `
@@ -4349,7 +4358,7 @@ async function vWealth() {
             </select>
 
             <select id="wtxn-cat" class="input">
-              ${categories.expense.map(c => `<option value="${c}">${getCategoryEmoji(c)} ${c}</option>`).join('')}
+              ${categories.expense.map(c => `<option value="${escH(c)}">${getCategoryEmoji(c)} ${escH(c)}</option>`).join('')}
             </select>
 
             <input type="number" id="wtxn-amt" class="input" placeholder="Amount (₹)" step="0.01" min="0">
@@ -4383,14 +4392,14 @@ async function vWealth() {
                     <div class="txn-icon">${getCategoryEmoji(t.category)}</div>
                     <div>
                       <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);">${escH(t.decryptedNote || t.category)}</div>
-                      <div style="font-size:11.5px;color:var(--text-muted);">${t.date} · ${escH(accountLabel)} · <span style="text-transform:capitalize;">${t.type}</span></div>
+                          <div style="font-size:11.5px;color:var(--text-muted);">${escH(t.date)} · ${escH(accountLabel)} · <span style="text-transform:capitalize;">${escH(t.type)}</span></div>
                     </div>
                   </div>
                   <div style="display:flex;align-items:center;gap:14px;">
                     <div class="${isInc ? 'txn-amt-pos' : isExp ? 'txn-amt-neg' : 'txn-amt-neu'}">
                       ${t.type === 'transfer' ? '↔' : isInc ? '+' : isExp ? '−' : ''}${fmtCurrency(t.amount)}
                     </div>
-                    <button class="task-del" onclick="doDelWealthTransaction('${t.id}')" title="Delete transaction">&#10005;</button>
+                    <button class="task-del" onclick="doDelWealthTransaction(${eventArg(t.id)})" title="Delete transaction">&#10005;</button>
                   </div>
                 </div>
               `;
@@ -4434,12 +4443,12 @@ async function vWealth() {
             <div class="wealth-acct-card">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:8px;">
                   <div>
-                    <span class="acct-type-badge">${a.type || 'bank'}</span>
+                    <span class="acct-type-badge">${escH(a.type || 'bank')}</span>
                     <h3 style="font-size:16px;font-weight:700;margin-top:6px;">${escH(a.decryptedName)}</h3>
                   </div>
                   <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
-                    <button class="btn btn-primary" style="padding:5px 10px;font-size:11px;height:auto;" onclick="doAddMoneyToAccount('${a.id}')">＋ Add Money</button>
-                    <button class="task-del" onclick="doDelWealthAccount('${a.id}')" title="Delete account">&#10005;</button>
+                    <button class="btn btn-primary" style="padding:5px 10px;font-size:11px;height:auto;" onclick="doAddMoneyToAccount(${eventArg(a.id)})">＋ Add Money</button>
+                    <button class="task-del" onclick="doDelWealthAccount(${eventArg(a.id)})" title="Delete account">&#10005;</button>
                   </div>
                 </div>
               <div style="font-family:'Outfit',sans-serif;font-size:26px;font-weight:800;color:var(--text-primary);margin-top:10px;">
@@ -4456,7 +4465,7 @@ async function vWealth() {
         <div class="sec-label">🎯 Set / Update Monthly Category Budget</div>
         <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:center;">
           <select id="wbud-cat" class="input">
-            ${categories.expense.map(c => `<option value="${c}">${getCategoryEmoji(c)} ${c}</option>`).join('')}
+            ${categories.expense.map(c => `<option value="${escH(c)}">${getCategoryEmoji(c)} ${escH(c)}</option>`).join('')}
           </select>
           <input type="number" id="wbud-amt" class="input" placeholder="Monthly Limit (₹)" step="100" min="0">
           <button class="btn btn-primary" style="height:38px;" onclick="doSetWealthBudget()">Set Budget</button>
@@ -4477,7 +4486,7 @@ async function vWealth() {
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                   <div style="display:flex;align-items:center;gap:8px;">
                     <span style="font-size:18px;">${getCategoryEmoji(cat)}</span>
-                    <span style="font-size:14px;font-weight:600;">${cat}</span>
+                    <span style="font-size:14px;font-weight:600;">${escH(cat)}</span>
                   </div>
                   <div style="font-family:'JetBrains Mono',monospace;font-size:13px;">
                     <span style="font-weight:700;color:${spent > limit && limit > 0 ? 'var(--danger)' : 'var(--text-primary)'};">${fmtCurrency(spent)}</span>
@@ -4530,7 +4539,7 @@ function updateWealthCatOptions() {
     catEl.disabled = true;
   } else {
     const list = type === 'income' ? categories.income : categories.expense;
-    catEl.innerHTML = list.map(c => `<option value="${c}">${getCategoryEmoji(c)} ${c}</option>`).join('');
+    catEl.innerHTML = list.map(c => `<option value="${escH(c)}">${getCategoryEmoji(c)} ${escH(c)}</option>`).join('');
     catEl.disabled = false;
   }
 
