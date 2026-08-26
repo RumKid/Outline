@@ -557,26 +557,18 @@ const DM = {
   skipNextJournalBackup: false,
 
   fallbackSnapshot() {
-    const snapshot = {};
-    const keys = ['pvp_tasks','pvp_habits','pvp_water','pvp_sessions','pvp_active','pvp_sleep','pvp_intentions','pvp_daily_summaries','pvp_wealth','pvp_projects','pvp_journal','pvp_ideas','pvp_enc_salt','pvp_enc_verify','pvp_private_vault'];
-    keys.forEach(key => { const value = localStorage.getItem(key); if (value !== null) snapshot[key] = value; });
-    return { schemaVersion: DATA_SCHEMA_VERSION, savedAt: new Date().toISOString(), values: snapshot };
+    return OutlineStorage.snapshot(localStorage, DATA_SCHEMA_VERSION);
   },
 
   saveFallbackBackup() {
     if (!this.fallback) return false;
-    const current = localStorage.getItem(this.fallbackBackupKey);
-    if (current) localStorage.setItem(this.fallbackBackupPreviousKey, current);
-    localStorage.setItem(this.fallbackBackupKey, JSON.stringify(this.fallbackSnapshot()));
+    OutlineStorage.rotateAndSave(localStorage, this.fallbackBackupKey, this.fallbackBackupPreviousKey, this.fallbackSnapshot());
     return true;
   },
 
   restoreFallbackBackup() {
-    const raw = localStorage.getItem(this.fallbackBackupKey) || localStorage.getItem(this.fallbackBackupPreviousKey);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw);
-    if (!parsed.values || typeof parsed.values !== 'object') throw new Error('Invalid browser backup');
-    Object.entries(parsed.values).forEach(([key, value]) => localStorage.setItem(key, value));
+    const restored = OutlineStorage.restore(localStorage, this.fallbackBackupKey, this.fallbackBackupPreviousKey);
+    if (!restored) return false;
     S.clearCache();
     return true;
   },
