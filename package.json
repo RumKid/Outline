@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/outline.test.js"
+    "test": "node --test tests/outline.test.js",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
   }
 }

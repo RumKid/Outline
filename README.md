@@ -21,6 +21,7 @@ For development checks:
 ```bash
 npm test
 node --check app.js
+npm run test:e2e
 ```
 
 The test suite covers local dates, offline behavior, rendering smoke tests, escaping, task/project/wealth behavior, encryption, durable saves, backups, schema handling, and fallback recovery.
