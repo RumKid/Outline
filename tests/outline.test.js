@@ -357,3 +357,16 @@ test('data backups rotate and corrupted primary data recovers from both backup s
   const recoveredPrevious = await app.DM.load();
   assert.equal(recoveredPrevious.tasks[0].id, 'v1');
 });
+
+test('fallback storage keeps rotating backups and restores them', () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  app.S.sSilent('pvp_tasks', [{ id: 'fallback-1', title: 'Keep me', date: '2026-08-26', done: false, subtasks: [] }]);
+  app.DM.saveFallbackBackup();
+  app.S.sSilent('pvp_tasks', [{ id: 'fallback-2', title: 'Second copy', date: '2026-08-26', done: false, subtasks: [] }]);
+  app.DM.saveFallbackBackup();
+  app.storage.setItem('pvp_tasks', JSON.stringify([]));
+  assert.equal(app.DM.restoreFallbackBackup(), true);
+  assert.equal(JSON.parse(app.storage.getItem('pvp_tasks'))[0].id, 'fallback-2');
+  assert.ok(app.storage.getItem('pvp_fallback_backup_previous'));
+});

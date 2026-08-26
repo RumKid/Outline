@@ -77,8 +77,22 @@ function isValidWealthDate(value) {
   return !Number.isNaN(date.getTime()) && dateKey(date) === value;
 }
 
+function showToast(message, tone = 'info') {
+  if (!document?.createElement || !document?.body?.appendChild) {
+    if (typeof alert === 'function') alert(message);
+    return;
+  }
+  const existing = document.querySelector('.outline-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = `outline-toast ${tone}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3200);
+}
+
 function showWealthValidationError(message) {
-  if (typeof alert === 'function') alert(message);
+  showToast(message, 'error');
 }
 
 function lastWeek() {
@@ -559,6 +573,8 @@ const DM = {
   journalBackupFileName: 'outline-journal.backup.json',
   journalBackupPreviousFileName: 'outline-journal.backup.previous.json',
   fallback: false,          // true = localStorage-only mode
+  fallbackBackupKey: 'pvp_fallback_backup',
+  fallbackBackupPreviousKey: 'pvp_fallback_backup_previous',
   saveTimer: null,
   saveJournalTimer: null,
   saveInFlight: null,
@@ -574,6 +590,38 @@ const DM = {
   schemaBlocked: false,
   skipNextDataBackup: false,
   skipNextJournalBackup: false,
+
+  fallbackSnapshot() {
+    const snapshot = {};
+    const keys = ['pvp_tasks','pvp_habits','pvp_water','pvp_sessions','pvp_active','pvp_sleep','pvp_intentions','pvp_daily_summaries','pvp_wealth','pvp_projects','pvp_journal','pvp_ideas','pvp_enc_salt','pvp_enc_verify','pvp_private_vault'];
+    keys.forEach(key => { const value = localStorage.getItem(key); if (value !== null) snapshot[key] = value; });
+    return { schemaVersion: DATA_SCHEMA_VERSION, savedAt: new Date().toISOString(), values: snapshot };
+  },
+
+  saveFallbackBackup() {
+    if (!this.fallback) return false;
+    const current = localStorage.getItem(this.fallbackBackupKey);
+    if (current) localStorage.setItem(this.fallbackBackupPreviousKey, current);
+    localStorage.setItem(this.fallbackBackupKey, JSON.stringify(this.fallbackSnapshot()));
+    return true;
+  },
+
+  restoreFallbackBackup() {
+    const raw = localStorage.getItem(this.fallbackBackupKey) || localStorage.getItem(this.fallbackBackupPreviousKey);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed.values || typeof parsed.values !== 'object') throw new Error('Invalid browser backup');
+    Object.entries(parsed.values).forEach(([key, value]) => localStorage.setItem(key, value));
+    S.clearCache();
+    return true;
+  },
+
+  exportFallback() {
+    const blob = new Blob([JSON.stringify(this.fallbackSnapshot(), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href = url; link.download = 'outline-browser-backup.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  },
 
   // ── IndexedDB: persist the directory handle ──────────────────
   _dbProm: null,
@@ -786,6 +834,7 @@ const DM = {
 
   // ── Write data to file ────────────────────────────────────────
   save() {
+    if (this.fallback) this.saveFallbackBackup();
     if (this.fallback || !this.dirHandle) return Promise.resolve(false);
     compileDailySummaries();
     this.savePending = true;
@@ -1997,6 +2046,27 @@ function chartNode(name, attrs = {}, text = '') {
   Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
   if (text) node.textContent = text;
   return node;
+}
+
+async function importFallbackBackup(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    if (!parsed || typeof parsed.values !== 'object' || Array.isArray(parsed.values)) throw new Error('Invalid backup file');
+    Object.entries(parsed.values).forEach(([key, value]) => {
+      if (/^pvp_[a-z0-9_]+$/i.test(key) && typeof value === 'string') localStorage.setItem(key, value);
+    });
+    S.clearCache();
+    DM.fallback = true;
+    showToast('Browser backup imported', 'success');
+    await renderView(curView);
+  } catch (error) {
+    console.error('Browser backup import failed:', error);
+    showToast('Could not import that backup', 'error');
+  } finally {
+    event.target.value = '';
+  }
 }
 
 function makeSvgChart(id, labels, data, type, unit = '') {

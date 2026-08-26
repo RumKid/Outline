@@ -118,6 +118,11 @@
           <div class="data-status-sub" id="data-status-sub">Click to connect folder</div>
         </div>
       </div>
+      <div class="data-actions">
+        <button class="data-action" onclick="DM.exportFallback()" title="Download a browser-storage backup">Export backup</button>
+        <button class="data-action" onclick="document.getElementById('fallback-import-input').click()" title="Restore a browser-storage backup">Import backup</button>
+        <input id="fallback-import-input" type="file" accept="application/json" hidden onchange="importFallbackBackup(event)">
+      </div>
       <div class="sidebar-date-txt" id="sidebar-date-txt"></div>
     </div>
   </aside>
