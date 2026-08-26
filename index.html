@@ -108,6 +108,12 @@
           <span class="nav-ind"></span><span class="nav-emoji">💰</span><span>Wealth</span>
         </button>
       </div>
+      <div class="nav-section">
+        <div class="nav-section-label">System</div>
+        <button class="nav-item" type="button" data-view="settings" onclick="navigate('settings')">
+          <span class="nav-ind"></span><span class="nav-emoji">⚙</span><span>Settings &amp; Data</span>
+        </button>
+      </div>
     </nav>
     <div class="sidebar-footer">
       <div class="sidebar-footer-label">Data</div>
@@ -130,6 +136,7 @@
   </aside>
 
   <div class="main-wrapper">
+    <div id="save-state-banner" class="save-state-banner hidden" role="status" aria-live="polite"></div>
     <header class="topbar">
       <div class="topbar-date">
         <span class="topbar-date-main" id="tb-date"></span>

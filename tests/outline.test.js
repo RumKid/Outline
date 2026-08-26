@@ -122,8 +122,11 @@ test('the standalone app has no remote runtime dependencies', () => {
   await app.renderView('study');
   assert.match(app.content.innerHTML, /Study Tracker/);
   assert.match(app.content.innerHTML, /study-chart/);
-  assert.match(app.content.innerHTML, /Today's Sessions/);
-});
+    assert.match(app.content.innerHTML, /Today's Sessions/);
+    await app.renderView('settings');
+    assert.match(app.content.innerHTML, /Settings &amp; Data/);
+    assert.match(app.content.innerHTML, /Download full backup/);
+  });
 
 test('HTML escaping protects text, attributes, and inline handler arguments', () => {
   const { escH, eventArg } = loadApp();

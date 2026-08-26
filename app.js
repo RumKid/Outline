@@ -623,6 +623,17 @@ const DM = {
     setTimeout(() => URL.revokeObjectURL(url), 0);
   },
 
+  async exportCurrentData() {
+    const data = this.fallback ? this.fallbackSnapshot() : (await this.load()) || this.fallbackSnapshot();
+    const journal = this.fallback ? null : await this.loadJournal();
+    const payload = { ...data, journal, exportType: 'outline-full-backup', exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob); const link = document.createElement('a');
+    link.href = url; link.download = 'outline-full-backup.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    showToast('Full backup downloaded', 'success');
+  },
+
   // ── IndexedDB: persist the directory handle ──────────────────
   _dbProm: null,
   openDB() {
@@ -1098,6 +1109,13 @@ const DM = {
     else                        { dot.classList.add('disconnected'); }
     if (stxt) stxt.textContent = txt;
     if (ssub) ssub.textContent = sub;
+    const banner = $('save-state-banner');
+    if (banner) {
+      const persistent = state === 'saving' || state === 'disconnected';
+      banner.classList.toggle('hidden', !persistent);
+      banner.className = `save-state-banner ${persistent ? state : ''} ${persistent ? '' : 'hidden'}`;
+      banner.textContent = persistent ? `${txt} — ${sub}` : '';
+    }
   }
 };
 
@@ -2083,6 +2101,62 @@ async function importFallbackBackup(event) {
   } finally {
     event.target.value = '';
   }
+}
+
+async function doRotatePassword() {
+  const first = $('settings-new-password')?.value || '';
+  const second = $('settings-confirm-password')?.value || '';
+  const error = $('settings-password-error');
+  if (first.length < 6 || first !== second) {
+    if (error) error.textContent = first.length < 6 ? 'Password must be at least 6 characters.' : 'Passwords do not match.';
+    return;
+  }
+  if (!await Auth.rotatePassword(first)) {
+    if (error) error.textContent = 'Unlock Outline before changing the password.';
+    return;
+  }
+  if (error) error.textContent = '';
+  $('settings-new-password').value = ''; $('settings-confirm-password').value = '';
+  showToast('Password changed and vault re-encrypted', 'success');
+}
+
+function showBackupPreview(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      const values = data.values || data;
+      const size = new Blob([reader.result]).size;
+      const preview = document.createElement('div');
+      preview.className = 'backup-preview'; preview.setAttribute('role', 'dialog'); preview.setAttribute('aria-modal', 'true');
+      preview.innerHTML = `<div class="backup-preview-card"><h2>Review backup</h2><p>Schema: ${escH(data.schemaVersion ?? 'unknown')}</p><p>Saved: ${escH(data.savedAt || data.exportedAt || 'unknown')}</p><p>Storage: ${data.values ? 'Browser storage' : 'Full Outline backup'} · ${(size / 1024).toFixed(1)} KB</p><p>Stores: ${Object.keys(values || {}).length}</p><div class="backup-preview-actions"><button class="btn btn-ghost" type="button" onclick="this.closest('.backup-preview').remove()">Cancel</button><button class="btn btn-primary" type="button" onclick="applyImportedBackup(window.__outlinePendingBackup);this.closest('.backup-preview').remove()">Restore backup</button></div></div>`;
+      window.__outlinePendingBackup = data;
+      document.body.appendChild(preview);
+    } catch { showToast('Could not read that backup file', 'error'); }
+  };
+  reader.readAsText(file);
+}
+
+async function applyImportedBackup(data) {
+  try {
+    if (data.values) {
+      Object.entries(data.values).forEach(([key, value]) => { if (/^pvp_[a-z0-9_]+$/i.test(key) && typeof value === 'string') localStorage.setItem(key, value); });
+    } else {
+      await DM.applyToStore(data);
+      if (data.journal !== undefined) localStorage.setItem('pvp_journal', JSON.stringify(data.journal));
+      if (!DM.fallback) await DM._doSave();
+    }
+    S.clearCache(); DM.fallback = !!data.values; await renderView(curView); showToast('Backup restored', 'success');
+  } catch (error) { console.error('Backup restore failed:', error); showToast('Could not restore backup', 'error'); }
+}
+
+function vSettings() {
+  const encrypted = Auth.hasPassword();
+  return `<div class="view-enter"><div class="page-header"><h1 class="page-title">Settings &amp; Data</h1><p class="page-sub">Control storage, encryption, backups, and recovery.</p></div>
+    <div class="settings-grid">
+      <section class="card settings-card"><div class="sec-label">Storage</div><h2>${DM.fallback ? 'Browser storage' : 'File storage'}</h2><p class="settings-help">${DM.fallback ? 'Data is stored in this browser. Export backups regularly.' : `Data is stored in ${escH(DM.dirHandle?.name || 'your selected folder')}.`}</p><div class="settings-actions"><button class="btn btn-primary" type="button" onclick="DM.exportCurrentData()">Download full backup</button><button class="btn btn-ghost" type="button" onclick="$('settings-import-input').click()">Restore backup</button><input id="settings-import-input" type="file" accept="application/json" hidden onchange="showBackupPreview(this.files[0])"></div><button class="btn btn-ghost" type="button" onclick="showStorageDiagnostics()">Run storage diagnostics</button></section>
+    <section class="card settings-card"><div class="sec-label">Encryption</div><h2>${encrypted ? 'Vault encryption enabled' : 'Vault not configured'}</h2><p class="settings-help">${encrypted ? 'Your personal data is encrypted while stored locally.' : 'Set a password to encrypt personal data and require unlock access.'}</p>${encrypted ? `<input id="settings-new-password" class="input" type="password" placeholder="New password" autocomplete="new-password"><input id="settings-confirm-password" class="input" type="password" placeholder="Confirm new password" autocomplete="new-password"><button class="btn btn-primary" type="button" onclick="doRotatePassword()">Change password</button><div id="settings-password-error" class="settings-error" role="alert"></div>` : `<button class="btn btn-primary" type="button" onclick="renderView('dashboard')">Set password from a protected section</button>`}</section>
+    <section class="card settings-card danger-zone"><div class="sec-label">Danger zone</div><p class="settings-help">Reset removes Outline data from this browser. Export a backup first.</p><button class="btn btn-ghost" type="button" onclick="resetOutlineData()">Reset browser data</button></section></div></div>`;
 }
 
 function makeSvgChart(id, labels, data, type, unit = '') {
@@ -4148,7 +4222,7 @@ async function renderView(v){
 
   // Async-capable view map
   const syncMap  = {habits:vHabits, water:vWater, study:vStudy, sleep:vSleep};
-  const asyncMap = {journal:vJournal, ideas:vIdeas, dashboard:vDashboard, tasks:vTasks, projects:vProjects, wealth:vWealth};
+  const asyncMap = {journal:vJournal, ideas:vIdeas, dashboard:vDashboard, tasks:vTasks, projects:vProjects, wealth:vWealth, settings:vSettings};
 
   let html;
   if (asyncMap[curView]) {
