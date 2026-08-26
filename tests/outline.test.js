@@ -6,6 +6,7 @@ import vm from 'node:vm';
 
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const appScript = await readFile(new URL('../app.js', import.meta.url), 'utf8');
+const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
 assert.ok(appScript, 'Outline app script should be present');
 
 function createStorage(initial = {}) {
@@ -109,6 +110,7 @@ test('the standalone app has no remote runtime dependencies', () => {
   assert.doesNotMatch(source, /fonts\.googleapis\.com|cdn\.jsdelivr\.net/);
   assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|new\s+Chart\s*\(/);
   assert.match(appScript, /function makeSvgChart\(/);
+  assert.match(styles, /\.offline-chart\s*\{[^}]*width:100%;[^}]*height:100%;/);
 });
 
 test('HTML escaping protects text, attributes, and inline handler arguments', () => {

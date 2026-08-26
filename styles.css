@@ -403,6 +403,7 @@
     /* ── CHART ───────────────────────────────────────────────── */
     .chart-box { position:relative; height:180px; margin-top:12px; }
     .chart-box-lg { position:relative; height:280px; margin-top:12px; }
+    .offline-chart { display:block; width:100%; height:100%; }
 
     /* ── COUNTDOWN TIMER ─────────────────────────────────────── */
     .countdown-card {
