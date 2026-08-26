@@ -97,8 +97,11 @@ function lastWeek() {
 const Auth = (() => {
   const SALT_KEY    = 'pvp_enc_salt';
   const VERIFY_KEY  = 'pvp_enc_verify';
+  const VAULT_KEY   = 'pvp_private_vault';
+  const PRIVATE_KEYS = ['pvp_tasks', 'pvp_habits', 'pvp_water', 'pvp_sessions', 'pvp_active', 'pvp_sleep', 'pvp_intentions', 'pvp_daily_summaries', 'pvp_wealth', 'pvp_projects', 'pvp_journal', 'pvp_ideas'];
   const VERIFY_MSG  = 'outline-verified';
   let _cryptoKey    = null; // lives in memory only
+  let vaultTimer    = null;
 
   // ── helpers ────────────────────────────────────────────────────
   function b64(buf) {
@@ -162,6 +165,35 @@ const Auth = (() => {
     return { encryptedProjects, modified };
   }
 
+  function vaultSnapshot() {
+    const snapshot = {};
+    PRIVATE_KEYS.forEach(key => {
+      const decryptedKey = key === 'pvp_journal' ? 'pvp_journal_dec' : key === 'pvp_ideas' ? 'pvp_ideas_dec' : key;
+      snapshot[key] = S._cache[decryptedKey] !== undefined ? S._cache[decryptedKey] : S._cache[key] !== undefined ? S._cache[key] : S.g(key);
+    });
+    return snapshot;
+  }
+
+  async function saveVault() {
+    if (!_cryptoKey) return false;
+    const encrypted = await aesEncrypt(_cryptoKey, vaultSnapshot());
+    localStorage.setItem(VAULT_KEY, JSON.stringify({ _enc: true, ...encrypted }));
+    PRIVATE_KEYS.forEach(key => localStorage.removeItem(key));
+    return true;
+  }
+
+  async function restoreVault() {
+    if (!_cryptoKey) return false;
+    const raw = localStorage.getItem(VAULT_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    const snapshot = await aesDecrypt(_cryptoKey, parsed);
+    Object.entries(snapshot || {}).forEach(([key, value]) => { S._cache[key] = value; });
+    if (snapshot.pvp_journal !== undefined) S._cache.pvp_journal_dec = snapshot.pvp_journal;
+    if (snapshot.pvp_ideas !== undefined) S._cache.pvp_ideas_dec = snapshot.pvp_ideas;
+    return true;
+  }
+
   // ── public API ─────────────────────────────────────────────────
   return {
     hasPassword() {
@@ -172,6 +204,29 @@ const Auth = (() => {
     },
     lock() {
       _cryptoKey = null;
+    },
+    isWriteAllowed() {
+      return !this.hasPassword() || this.isUnlocked();
+    },
+    async flushVault() { return saveVault(); },
+    queueVaultSave() {
+      if (!this.hasPassword() || !this.isUnlocked()) return;
+      clearTimeout(vaultTimer);
+      vaultTimer = setTimeout(() => saveVault().catch(error => console.error('Vault save failed:', error)), 300);
+    },
+    async rotatePassword(password) {
+      if (!_cryptoKey || !password || password.length < 6) return false;
+      const oldSnapshot = vaultSnapshot();
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const newKey = await deriveKey(password, salt);
+      const encryptedVault = await aesEncrypt(newKey, oldSnapshot);
+      const verifyPayload = await aesEncrypt(newKey, VERIFY_MSG);
+      localStorage.setItem(SALT_KEY, b64(salt));
+      localStorage.setItem(VERIFY_KEY, JSON.stringify(verifyPayload));
+      localStorage.setItem(VAULT_KEY, JSON.stringify({ _enc: true, ...encryptedVault }));
+      _cryptoKey = newKey;
+      PRIVATE_KEYS.forEach(key => localStorage.removeItem(key));
+      return true;
     },
 
     // Set a new password (first-time or change). Encrypts a
@@ -191,12 +246,14 @@ const Auth = (() => {
         const enc = await aesEncrypt(key, existingPlainJournal);
         localStorage.setItem('pvp_journal', JSON.stringify({ _enc: true, ...enc }));
         S._cache['pvp_journal'] = null;
+        S._cache['pvp_journal'] = existingPlainJournal;
         await DM.saveJournal();
       }
       if (existingPlainIdeas && existingPlainIdeas.length > 0) {
         const enc = await aesEncrypt(key, existingPlainIdeas);
         localStorage.setItem('pvp_ideas', JSON.stringify({ _enc: true, ...enc }));
         S._cache['pvp_ideas'] = null;
+        S._cache['pvp_ideas'] = existingPlainIdeas;
         await DM.save();
       }
 
@@ -321,6 +378,7 @@ const Auth = (() => {
         S._cache['pvp_projects'] = encryptedProjects;
         await DM.save();
       }
+      await saveVault();
     },
 
     // Try to unlock with the given password. Returns true/false.
@@ -335,12 +393,14 @@ const Auth = (() => {
         const result  = await aesDecrypt(key, payload);
         if (result !== VERIFY_MSG) return false;
         _cryptoKey = key;
+        if (await restoreVault()) return true;
         const projectMigration = await encryptProjectSubtasks(S.projects(), key);
         if (projectMigration.modified) {
           localStorage.setItem('pvp_projects', JSON.stringify(projectMigration.encryptedProjects));
           S._cache['pvp_projects'] = projectMigration.encryptedProjects;
           await DM.save();
         }
+        await saveVault();
         return true;
       } catch {
         return false;
@@ -382,7 +442,8 @@ const Auth = (() => {
     // Encrypt a field value asynchronously if unlocked.
     async encryptField(val) {
       if (typeof val !== 'string') return val;
-      if (!this.hasPassword() || !_cryptoKey) return val;
+      if (!this.hasPassword()) return val;
+      if (!_cryptoKey) throw new Error('Outline is locked');
       return this.encrypt(val);
     },
 
@@ -770,6 +831,7 @@ const DM = {
       return false;
     }
     this.setStatus('saving', 'Saving…', 'Writing to folder');
+    if (Auth.hasPassword() && Auth.isUnlocked()) await Auth.flushVault();
     const data = {
       schemaVersion: DATA_SCHEMA_VERSION,
       tasks:          S.g('pvp_tasks')           || [],
@@ -785,6 +847,13 @@ const DM = {
       ideas:          (() => { const r = localStorage.getItem('pvp_ideas'); return r ? JSON.parse(r) : []; })(),
       savedAt:        new Date().toISOString(),
     };
+    const vaultRaw = Auth.hasPassword() && Auth.isUnlocked() ? localStorage.getItem('pvp_private_vault') : null;
+    if (vaultRaw) {
+      data.privateVault = JSON.parse(vaultRaw);
+      delete data.tasks; delete data.habits; delete data.water; delete data.sessions;
+      delete data.active; delete data.sleep; delete data.intentions; delete data.dailySummaries;
+      delete data.wealth; delete data.projects; delete data.ideas;
+    }
 
     try {
       await this.backupExistingFile(this.fileName, this.backupFileName, this.backupPreviousFileName, 'skipNextDataBackup');
@@ -864,7 +933,12 @@ const DM = {
   async _doSaveJournal() {
     if (!this.dirHandle) return false;
     const raw = localStorage.getItem('pvp_journal');
-    const data = raw ? JSON.parse(raw) : {};
+    const plainData = Auth.hasPassword() && Auth.isUnlocked()
+      ? (S._cache['pvp_journal_dec'] || {})
+      : (raw ? JSON.parse(raw) : {});
+    const data = Auth.hasPassword() && Auth.isUnlocked()
+      ? await Auth.encrypt(plainData)
+      : plainData;
     try {
       await this.backupExistingFile(this.journalFileName, this.journalBackupFileName, this.journalBackupPreviousFileName, 'skipNextJournalBackup');
     } catch (error) {
@@ -904,7 +978,7 @@ const DM = {
     await this.applyToStore(existing);
     if (this.schemaMigrationNotice && !this.schemaBlocked) this.save();
     const existingJournal = await this.loadJournal();
-    if (existingJournal) {
+    if (existingJournal && !existing?.privateVault) {
       // Store the raw blob (encrypted or plain) — decryption happens at read time
       S._cache['pvp_journal'] = null;
       localStorage.setItem('pvp_journal', JSON.stringify(existingJournal));
@@ -916,6 +990,10 @@ const DM = {
   async applyToStore(data) {
     if (!data) return;
     S.clearCache();
+    if (data.privateVault) {
+      localStorage.setItem('pvp_private_vault', JSON.stringify(data.privateVault));
+      return;
+    }
     if (data.tasks)          S.s('pvp_tasks',           data.tasks);
     if (data.habits) {
       const defaults = ['Workout', 'Read', 'Study', 'Journal'];
@@ -1061,13 +1139,17 @@ const S = {
     }
   },
   s(k,v) {
+    if (!Auth.isWriteAllowed()) throw new Error('Outline is locked');
     this._cache[k] = v;
     localStorage.setItem(k, JSON.stringify(v));
+    Auth.queueVaultSave();
     DM.save();
   },
   sSilent(k,v) {
+    if (!Auth.isWriteAllowed()) throw new Error('Outline is locked');
     this._cache[k] = v;
     localStorage.setItem(k, JSON.stringify(v));
+    Auth.queueVaultSave();
   },
   clearCache() {
     this._cache = {};
@@ -1293,6 +1375,7 @@ const S = {
       this._cache['pvp_journal'] = map;
       localStorage.setItem('pvp_journal', JSON.stringify(map));
     }
+    Auth.queueVaultSave();
     DM.saveJournal();
   },
 
@@ -1324,6 +1407,7 @@ const S = {
       this._cache['pvp_ideas'] = list;
       localStorage.setItem('pvp_ideas', JSON.stringify(list));
     }
+    Auth.queueVaultSave();
     DM.save();
   },
   async addIdea(title, desc) {
@@ -3338,14 +3422,14 @@ function lockAndNavigate(view) {
 }
 
 function vLockScreen(section) {
-  const label = section === 'journal' ? 'Daily Journal' : 'Ideas Board';
+  const label = section === 'journal' ? 'Daily Journal' : section === 'ideas' ? 'Ideas Board' : 'Outline';
   const isFirstTime = !Auth.hasPassword();
   return `<div class="lock-screen">
     <div class="lock-card" id="lock-card">
       <div class="lock-icon-wrap">${LOCK_SVG}</div>
       <div class="lock-title">${isFirstTime ? 'Protect ' + label : label + ' is Locked'}</div>
       <div class="lock-sub">${isFirstTime
-        ? 'Set a master password to encrypt your Journal &amp; Ideas. This protects both sections.'
+        ? 'Set a master password to encrypt your personal Outline data.'
         : 'Enter your password to access this section.'}</div>
 
       ${isFirstTime ? `
@@ -3967,8 +4051,8 @@ async function renderView(v){
   if(timerIv&&v!=='study'){clearInterval(timerIv);timerIv=null;}
   const c=$('content'); if(!c) return;
 
-  // Gate journal and ideas behind lock screen
-  if ((curView==='journal' || curView==='ideas') && !Auth.isUnlocked()) {
+  // Protect the complete personal vault whenever a password is configured.
+  if (Auth.hasPassword() && !Auth.isUnlocked()) {
     c.innerHTML = vLockScreen(curView);
     c.scrollTop = 0;
     document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===curView));

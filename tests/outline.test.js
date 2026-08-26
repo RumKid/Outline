@@ -58,9 +58,12 @@ function createDirectory(initial = {}) {
 }
 
 function loadApp(storage = createStorage()) {
+  const elements = new Map();
+  const content = { innerHTML: '', scrollTop: 0 };
+  elements.set('content', content);
   const document = {
     addEventListener() {},
-    getElementById() { return null; },
+    getElementById(id) { return elements.get(id) || null; },
     querySelectorAll() { return []; },
     body: { appendChild() {} }
   };
@@ -92,8 +95,8 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg };`, context);
-  return { ...context.__outline, storage };
+  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects };`, context);
+  return { ...context.__outline, storage, content };
 }
 
 test('local date helpers use the local calendar date', () => {
@@ -111,6 +114,15 @@ test('the standalone app has no remote runtime dependencies', () => {
   assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|new\s+Chart\s*\(/);
   assert.match(appScript, /function makeSvgChart\(/);
   assert.match(styles, /\.offline-chart\s*\{[^}]*width:100%;[^}]*height:100%;/);
+});
+
+  test('browser smoke rendering produces the Study view', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.renderView('study');
+  assert.match(app.content.innerHTML, /Study Tracker/);
+  assert.match(app.content.innerHTML, /study-chart/);
+  assert.match(app.content.innerHTML, /Today's Sessions/);
 });
 
 test('HTML escaping protects text, attributes, and inline handler arguments', () => {
@@ -180,7 +192,7 @@ test('wealth income, expense, transfer, deletion, and budget calculations stay b
 test('password setup and unlock encrypt existing project subtasks', async () => {
   const app = loadApp();
   app.DM.fallback = true;
-  app.S.s('pvp_projects', [{
+  app.storage.setItem('pvp_projects', JSON.stringify([{
     id: 'project-1',
     title: 'Private project',
     description: 'Private details',
@@ -191,15 +203,17 @@ test('password setup and unlock encrypt existing project subtasks', async () => 
       done: false,
       subtasks: [{ id: 'project-subtask-1', title: 'Private subtask', done: false }]
     }]
-  }]);
+  }]));
 
   await app.Auth.setPassword('correct horse battery', {}, []);
-  let stored = JSON.parse(app.storage.getItem('pvp_projects'));
+  let stored = await app.Auth.decrypt(JSON.parse(app.storage.getItem('pvp_private_vault')));
+  stored = stored.pvp_projects;
   assert.equal(stored[0].tasks[0].subtasks[0].title._enc, true);
   assert.equal(await app.Auth.decrypt(stored[0].tasks[0].subtasks[0].title), 'Private subtask');
 
   app.Auth.lock();
-  app.S.s('pvp_projects', [{
+  app.storage.removeItem('pvp_private_vault');
+  app.storage.setItem('pvp_projects', JSON.stringify([{
     id: 'project-1',
     title: stored[0].title,
     description: stored[0].description,
@@ -210,12 +224,26 @@ test('password setup and unlock encrypt existing project subtasks', async () => 
       done: false,
       subtasks: [{ id: 'project-subtask-2', title: 'Added while legacy', done: false }]
     }]
-  }]);
+  }]));
   app.S.clearCache();
   assert.equal(await app.Auth.unlock('correct horse battery'), true);
-  stored = JSON.parse(app.storage.getItem('pvp_projects'));
+  stored = JSON.parse(app.storage.getItem('pvp_private_vault'));
+  stored = await app.Auth.decrypt(stored);
+  stored = stored.pvp_projects;
   assert.equal(stored[0].tasks[0].subtasks[0].title._enc, true);
   assert.equal(await app.Auth.decrypt(stored[0].tasks[0].subtasks[0].title), 'Added while legacy');
+
+  assert.ok(JSON.parse(app.storage.getItem('pvp_private_vault'))._enc);
+  app.Auth.lock();
+  await assert.rejects(
+    app.S.addTask({ id: 'locked-task', title: 'Should not write', date: '2026-08-26', done: false }),
+    /locked/i
+  );
+  assert.equal(await app.Auth.unlock('correct horse battery'), true);
+  assert.equal(await app.Auth.rotatePassword('new correct password'), true);
+  app.Auth.lock();
+  assert.equal(await app.Auth.unlock('correct horse battery'), false);
+  assert.equal(await app.Auth.unlock('new correct password'), true);
 });
 
 test('durable saves flush pending data and retry transient write failures', async () => {
@@ -245,12 +273,20 @@ test('durable saves flush pending data and retry transient write failures', asyn
   assert.ok(directory.files.has('outline-journal.json'));
 });
 
+test('locked app renders a lock screen for protected views', async () => {
+  const app = loadApp();
+  app.storage.setItem('pvp_enc_verify', JSON.stringify({ _enc: true }));
+  await app.renderView('wealth');
+  assert.match(app.content.innerHTML, /Outline is Locked/);
+});
+
 test('legacy data migrates to the current schema and future schemas are protected', async () => {
   const legacyDirectory = createDirectory({
     'outline-data.json': JSON.stringify({
       tasks: [{ id: 'legacy-task', title: 'Legacy task', date: '2026-08-26', done: false }]
     })
   });
+
   const legacyApp = loadApp();
   legacyApp.DM.dirHandle = legacyDirectory;
   const migrated = await legacyApp.DM.load();
