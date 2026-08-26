@@ -1201,82 +1201,6 @@ const S = {
     this._cache = {};
   },
 
-  tasks()  {
-    const list = this.g('pvp_tasks') || [];
-    const t = today();
-    let changed = false;
-    const updated = list.map(task => {
-      let isChangedThisTask = false;
-      if (!task.subtasks) {
-        task.subtasks = [];
-        isChangedThisTask = true;
-      }
-      if (!task.done && task.date < t) {
-        task.date = t;
-        isChangedThisTask = true;
-      }
-      if (isChangedThisTask) {
-        changed = true;
-      }
-      return task;
-    });
-    if (changed) {
-      this.s('pvp_tasks', updated);
-    }
-    return updated;
-  },
-  async addTask(t){
-    t.title = await Auth.encryptField(t.title);
-    const a=this.tasks();
-    a.push(t);
-    this.s('pvp_tasks',a);
-  },
-  toggleTask(id){
-    this.s('pvp_tasks', this.tasks().map(t => {
-      if (t.id === id) {
-        const nextDone = !t.done;
-        const subs = (t.subtasks || []).map(s => ({ ...s, done: nextDone }));
-        return { ...t, done: nextDone, subtasks: subs };
-      }
-      return t;
-    }));
-  },
-  moveTaskToDate(id, date) {
-    this.s('pvp_tasks', this.tasks().map(task => task.id === id ? { ...task, date } : task));
-  },
-  delTask(id){ this.s('pvp_tasks', this.tasks().filter(t=>t.id!==id)); },
-  async addSubtask(parentId, title) {
-    const encryptedTitle = await Auth.encryptField(title);
-    this.s('pvp_tasks', this.tasks().map(t => {
-      if (t.id === parentId) {
-        const subs = t.subtasks || [];
-        subs.push({ id: uid(), title: encryptedTitle, done: false });
-        return { ...t, subtasks: subs, done: false };
-      }
-      return t;
-    }));
-  },
-  toggleSubtask(parentId, subtaskId) {
-    this.s('pvp_tasks', this.tasks().map(t => {
-      if (t.id === parentId) {
-        const subs = (t.subtasks || []).map(s => s.id === subtaskId ? { ...s, done: !s.done } : s);
-        const allDone = subs.every(s => s.done);
-        return { ...t, subtasks: subs, done: allDone };
-      }
-      return t;
-    }));
-  },
-  delSubtask(parentId, subtaskId) {
-    this.s('pvp_tasks', this.tasks().map(t => {
-      if (t.id === parentId) {
-        const subs = (t.subtasks || []).filter(s => s.id !== subtaskId);
-        const allDone = subs.length > 0 ? subs.every(s => s.done) : t.done;
-        return { ...t, subtasks: subs, done: allDone };
-      }
-      return t;
-    }));
-  },
-
   habits() {
     let h=this.g('pvp_habits');
     if(!h){
@@ -1923,7 +1847,9 @@ function areIntentionsEqual(a, b) {
   return false;
 }
 
-function compileDailySummaries() {
+ OutlineTasks.install(S, { today, uid, auth: Auth });
+
+ function compileDailySummaries() {
   const summaries = S.g('pvp_daily_summaries') || {};
   const datesSet = new Set();
   
