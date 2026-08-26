@@ -5,6 +5,7 @@ import { webcrypto } from 'node:crypto';
 import vm from 'node:vm';
 
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const authScript = await readFile(new URL('../src/auth.js', import.meta.url), 'utf8');
 const appScript = await readFile(new URL('../app.js', import.meta.url), 'utf8');
 const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
 assert.ok(appScript, 'Outline app script should be present');
@@ -95,7 +96,7 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab };`, context);
+  vm.runInContext(`${authScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab };`, context);
   return { ...context.__outline, storage, content };
 }
 

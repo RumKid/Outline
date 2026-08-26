@@ -120,44 +120,7 @@ const Auth = (() => {
   let vaultTimer    = null;
 
   // ── helpers ────────────────────────────────────────────────────
-  function b64(buf) {
-    return btoa(String.fromCharCode(...new Uint8Array(buf)));
-  }
-  function unb64(s) {
-    return Uint8Array.from(atob(s), c => c.charCodeAt(0));
-  }
-
-  async function deriveKey(password, salt) {
-    const enc = new TextEncoder();
-    const rawKey = await crypto.subtle.importKey(
-      'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
-    );
-    return crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-      rawKey,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
-  }
-
-  async function aesEncrypt(key, obj) {
-    const iv  = crypto.getRandomValues(new Uint8Array(12));
-    const enc = new TextEncoder();
-    const ct  = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      enc.encode(JSON.stringify(obj))
-    );
-    return { iv: b64(iv), data: b64(ct) };
-  }
-
-  async function aesDecrypt(key, payload) {
-    const iv = unb64(payload.iv);
-    const ct = unb64(payload.data);
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
-    return JSON.parse(new TextDecoder().decode(pt));
-  }
+  const { b64, unb64, deriveKey, encrypt: aesEncrypt, decrypt: aesDecrypt } = OutlineAuthCrypto;
 
   async function encryptProjectSubtasks(projects, key) {
     let modified = false;
