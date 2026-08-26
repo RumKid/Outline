@@ -856,6 +856,7 @@
    ================================================================ */
 const $ = id => document.getElementById(id);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+const DATA_SCHEMA_VERSION = 1;
 function dateKey(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -900,6 +901,29 @@ function getDefaultWealthCategories() {
     income: ['Salary', 'Freelance', 'Investments', 'Gift', 'Other'],
     expense: ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Education', 'Subscriptions', 'Other']
   };
+}
+
+const WEALTH_ACCOUNT_TYPES = new Set(['bank', 'cash', 'credit', 'investment']);
+const WEALTH_CURRENCIES = new Set(['₹', '$', '€', '£']);
+const WEALTH_TRANSACTION_TYPES = new Set(['income', 'expense', 'transfer']);
+
+function isValidWealthText(value, maxLength = 100) {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maxLength && !/[\u0000-\u001F\u007F]/.test(value);
+}
+
+function toWealthNumber(value) {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function isValidWealthDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(value + 'T12:00:00');
+  return !Number.isNaN(date.getTime()) && dateKey(date) === value;
+}
+
+function showWealthValidationError(message) {
+  if (typeof alert === 'function') alert(message);
 }
 
 function lastWeek() {
@@ -1291,6 +1315,8 @@ const DM = {
   saveRetryCount: 0,
   journalRetryCount: 0,
   recoveryNotice: null,
+  schemaMigrationNotice: null,
+  schemaBlocked: false,
   skipNextDataBackup: false,
   skipNextJournalBackup: false,
 
@@ -1457,9 +1483,50 @@ const DM = {
     return null;
   },
 
+  migrateData(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+    const version = Number.isInteger(data.schemaVersion) ? data.schemaVersion : 0;
+    if (version > DATA_SCHEMA_VERSION) {
+      this.schemaBlocked = true;
+      this.schemaMigrationNotice = `Schema ${version} requires a newer Outline version`;
+      this.setStatus('disconnected', 'Unsupported data version', 'Update Outline before saving');
+      return null;
+    }
+
+    this.schemaBlocked = false;
+    if (version === DATA_SCHEMA_VERSION) return data;
+
+    const migrated = {
+      ...data,
+      schemaVersion: DATA_SCHEMA_VERSION,
+      tasks: Array.isArray(data.tasks) ? data.tasks.map(task => ({
+        ...task,
+        subtasks: Array.isArray(task.subtasks) ? task.subtasks : []
+      })) : [],
+      habits: Array.isArray(data.habits) ? data.habits : [],
+      water: data.water && typeof data.water === 'object' ? data.water : {},
+      sessions: Array.isArray(data.sessions) ? data.sessions : [],
+      sleep: data.sleep && typeof data.sleep === 'object' ? data.sleep : {},
+      intentions: data.intentions && typeof data.intentions === 'object' ? data.intentions : {},
+      dailySummaries: data.dailySummaries && typeof data.dailySummaries === 'object' ? data.dailySummaries : {},
+      wealth: data.wealth && typeof data.wealth === 'object' ? data.wealth : { accounts: [], transactions: [], budgets: {}, categories: getDefaultWealthCategories() },
+      projects: Array.isArray(data.projects) ? data.projects.map(project => ({
+        ...project,
+        tasks: Array.isArray(project.tasks) ? project.tasks.map(task => ({
+          ...task,
+          subtasks: Array.isArray(task.subtasks) ? task.subtasks : []
+        })) : []
+      })) : [],
+      ideas: data.ideas ?? []
+    };
+    this.schemaMigrationNotice = `Legacy data upgraded to schema ${DATA_SCHEMA_VERSION}`;
+    return migrated;
+  },
+
   async load() {
     if (this.fallback || !this.dirHandle) return null;
-    return this.loadJsonWithBackup(this.fileName, this.backupFileName, this.backupPreviousFileName, 'Outline data', 'skipNextDataBackup');
+    const data = await this.loadJsonWithBackup(this.fileName, this.backupFileName, this.backupPreviousFileName, 'Outline data', 'skipNextDataBackup');
+    return this.migrateData(data);
   },
 
   // ── Write data to file ────────────────────────────────────────
@@ -1504,9 +1571,13 @@ const DM = {
   },
 
   async _doSave() {
-    if (!this.dirHandle) return false;
+    if (!this.dirHandle || this.schemaBlocked) {
+      if (this.schemaBlocked) this.setStatus('disconnected', 'Unsupported data version', 'Update Outline before saving');
+      return false;
+    }
     this.setStatus('saving', 'Saving…', 'Writing to folder');
     const data = {
+      schemaVersion: DATA_SCHEMA_VERSION,
       tasks:          S.g('pvp_tasks')           || [],
       habits:         S.g('pvp_habits')          || [],
       water:          S.g('pvp_water')           || {},
@@ -1633,8 +1704,11 @@ const DM = {
 
   async loadAll() {
     this.recoveryNotice = null;
+    this.schemaMigrationNotice = null;
+    this.schemaBlocked = false;
     const existing = await this.load();
     await this.applyToStore(existing);
+    if (this.schemaMigrationNotice && !this.schemaBlocked) this.save();
     const existingJournal = await this.loadJournal();
     if (existingJournal) {
       // Store the raw blob (encrypted or plain) — decryption happens at read time
@@ -1678,8 +1752,16 @@ const DM = {
 
   // ── Status badge ─────────────────────────────────────────────
   setConnectedStatus(folderName) {
+    if (this.schemaBlocked) {
+      this.setStatus('disconnected', 'Unsupported data version', 'Update Outline before saving');
+      return;
+    }
     if (this.recoveryNotice) {
       this.setStatus('connected', 'Recovered backup', `${this.recoveryNotice} · ${folderName}`);
+      return;
+    }
+    if (this.schemaMigrationNotice) {
+      this.setStatus('connected', 'Data upgraded', `${this.schemaMigrationNotice} · ${folderName}`);
       return;
     }
     this.setStatus('connected', 'Data folder connected', folderName);
@@ -2209,9 +2291,9 @@ const S = {
     const data = this.g('pvp_wealth') || {};
     const categories = data.categories || {};
     return {
-      accounts: data.accounts || [],
-      transactions: data.transactions || [],
-      budgets: data.budgets || {},
+      accounts: Array.isArray(data.accounts) ? data.accounts : [],
+      transactions: Array.isArray(data.transactions) ? data.transactions : [],
+      budgets: data.budgets && typeof data.budgets === 'object' ? data.budgets : {},
       categories: {
         income: Array.isArray(categories.income) && categories.income.length > 0 ? categories.income : defaultCategories.income,
         expense: Array.isArray(categories.expense) && categories.expense.length > 0 ? categories.expense : defaultCategories.expense
@@ -2222,86 +2304,124 @@ const S = {
     this.s('pvp_wealth', w);
   },
   async addWealthAccount(acc) {
+    const name = typeof acc?.name === 'string' ? acc.name.trim() : '';
+    const balance = toWealthNumber(acc?.balance);
+    const type = acc?.type || 'bank';
+    const currency = acc?.currency || '₹';
+    if (!acc?.id || !isValidWealthText(name) || balance === null || !WEALTH_ACCOUNT_TYPES.has(type) || !WEALTH_CURRENCIES.has(currency)) return false;
     const w = this.wealth();
-    if (acc.name) {
-      acc.name = await Auth.encryptField(acc.name);
-    }
-    w.accounts.push(acc);
+    const account = { ...acc, name, balance, type, currency };
+    account.name = await Auth.encryptField(account.name);
+    w.accounts.push(account);
     this._saveWealth(w);
+    return true;
   },
   async editWealthAccount(id, updates) {
     const w = this.wealth();
     const idx = w.accounts.findIndex(a => a.id === id);
-    if (idx !== -1) {
-      if (updates.name && typeof updates.name === 'string') {
-        updates.name = await Auth.encryptField(updates.name);
-      }
-      w.accounts[idx] = { ...w.accounts[idx], ...updates };
-      this._saveWealth(w);
+    if (idx === -1 || !updates || typeof updates !== 'object') return false;
+    const next = { ...updates };
+    if (next.name !== undefined) {
+      if (!isValidWealthText(next.name)) return false;
+      next.name = await Auth.encryptField(next.name.trim());
     }
+    if (next.balance !== undefined) {
+      next.balance = toWealthNumber(next.balance);
+      if (next.balance === null) return false;
+    }
+    if (next.type !== undefined && !WEALTH_ACCOUNT_TYPES.has(next.type)) return false;
+    if (next.currency !== undefined && !WEALTH_CURRENCIES.has(next.currency)) return false;
+    w.accounts[idx] = { ...w.accounts[idx], ...next };
+    this._saveWealth(w);
+    return true;
   },
   delWealthAccount(id) {
     const w = this.wealth();
+    if (!w.accounts.some(account => account.id === id)) return false;
+    if (w.transactions.some(transaction => transaction.accountId === id || transaction.toAccountId === id)) return false;
     w.accounts = w.accounts.filter(a => a.id !== id);
     this._saveWealth(w);
+    return true;
   },
   async addWealthTransaction(txn) {
+    const type = txn?.type;
+    const amount = toWealthNumber(txn?.amount);
+    const date = txn?.date;
+    if (!txn?.id || !WEALTH_TRANSACTION_TYPES.has(type) || amount === null || amount <= 0 || !isValidWealthDate(date)) return false;
     const w = this.wealth();
-    if (txn.note) {
-      txn.note = await Auth.encryptField(txn.note);
-    }
-    if (txn.type === 'transfer' && (!txn.toAccountId || txn.toAccountId === txn.accountId)) {
-      return;
-    }
-    w.transactions.push(txn);
+    const source = w.accounts.find(account => account.id === txn.accountId);
+    if (!source || toWealthNumber(source.balance) === null) return false;
+    if (type === 'transfer' && (!txn.toAccountId || txn.toAccountId === txn.accountId)) return false;
+    const destination = type === 'transfer' ? w.accounts.find(account => account.id === txn.toAccountId) : null;
+    if (type === 'transfer' && (!destination || toWealthNumber(destination.balance) === null)) return false;
+    if (!isValidWealthText(txn.category, 80)) return false;
+    if (txn.note !== undefined && txn.note !== '' && !isValidWealthText(txn.note, 500)) return false;
+
+    const transaction = { ...txn, type, amount, date, category: txn.category.trim() };
+    if (transaction.note) transaction.note = await Auth.encryptField(transaction.note.trim());
+    w.transactions.push(transaction);
 
     // Update account balances
-    const amt = parseFloat(txn.amount) || 0;
-    if (txn.type === 'income') {
-      const acct = w.accounts.find(a => a.id === txn.accountId);
-      if (acct) acct.balance = (parseFloat(acct.balance) || 0) + amt;
-    } else if (txn.type === 'expense') {
-      const acct = w.accounts.find(a => a.id === txn.accountId);
-      if (acct) acct.balance = (parseFloat(acct.balance) || 0) - amt;
-    } else if (txn.type === 'transfer') {
-      const src = w.accounts.find(a => a.id === txn.accountId);
-      const dst = w.accounts.find(a => a.id === txn.toAccountId);
-      if (src) src.balance = (parseFloat(src.balance) || 0) - amt;
-      if (dst) dst.balance = (parseFloat(dst.balance) || 0) + amt;
+    if (type === 'income') {
+      source.balance += amount;
+    } else if (type === 'expense') {
+      source.balance -= amount;
+    } else if (type === 'transfer') {
+      source.balance -= amount;
+      destination.balance += amount;
     }
 
     this._saveWealth(w);
+    return true;
   },
   delWealthTransaction(id) {
     const w = this.wealth();
     const txn = w.transactions.find(t => t.id === id);
-    if (txn) {
-      const amt = parseFloat(txn.amount) || 0;
+    if (!txn) return false;
+    const amount = toWealthNumber(txn.amount);
+    if (amount === null || amount <= 0) return false;
+    if (txn.type === 'income' || txn.type === 'expense') {
+      const account = w.accounts.find(a => a.id === txn.accountId);
+      if (!account || toWealthNumber(account.balance) === null) return false;
+    } else if (txn.type === 'transfer') {
+      const source = w.accounts.find(a => a.id === txn.accountId);
+      const destination = w.accounts.find(a => a.id === txn.toAccountId);
+      if (!source || !destination || toWealthNumber(source.balance) === null || toWealthNumber(destination.balance) === null) return false;
+    } else {
+      return false;
+    }
+    {
       if (txn.type === 'income') {
         const acct = w.accounts.find(a => a.id === txn.accountId);
-        if (acct) acct.balance = (parseFloat(acct.balance) || 0) - amt;
+        acct.balance -= amount;
       } else if (txn.type === 'expense') {
         const acct = w.accounts.find(a => a.id === txn.accountId);
-        if (acct) acct.balance = (parseFloat(acct.balance) || 0) + amt;
+        acct.balance += amount;
       } else if (txn.type === 'transfer') {
         const src = w.accounts.find(a => a.id === txn.accountId);
         const dst = w.accounts.find(a => a.id === txn.toAccountId);
-        if (src) src.balance = (parseFloat(src.balance) || 0) + amt;
-        if (dst) dst.balance = (parseFloat(dst.balance) || 0) - amt;
+        src.balance += amount;
+        dst.balance -= amount;
       }
       w.transactions = w.transactions.filter(t => t.id !== id);
       this._saveWealth(w);
+      return true;
     }
   },
   setWealthBudget(category, amount) {
     const w = this.wealth();
-    w.budgets[category] = parseFloat(amount) || 0;
+    const budget = toWealthNumber(amount);
+    if (!isValidWealthText(category, 80) || budget === null || budget < 0 || !w.categories.expense.includes(category)) return false;
+    w.budgets[category] = budget;
     this._saveWealth(w);
+    return true;
   },
   delWealthBudget(category) {
     const w = this.wealth();
+    if (!w.categories.expense.includes(category)) return false;
     delete w.budgets[category];
     this._saveWealth(w);
+    return true;
   }
 };
 
@@ -4429,16 +4549,21 @@ async function doAddWealthAccount() {
   if (!name) return;
 
   const type = typeIn?.value || 'bank';
-  const balance = parseFloat(balIn?.value) || 0;
+  const balance = balIn?.value === '' ? 0 : Number(balIn.value);
   const currency = currIn?.value || '₹';
 
-  await S.addWealthAccount({
+  const added = await S.addWealthAccount({
     id: uid(),
     name,
     type,
     balance,
     currency
   });
+
+  if (!added) {
+    showWealthValidationError('Enter a valid account name and balance.');
+    return;
+  }
 
   if (nameIn) nameIn.value = '';
   if (balIn) balIn.value = '';
@@ -4448,7 +4573,10 @@ async function doAddWealthAccount() {
 
 function doDelWealthAccount(id) {
   if (confirm('Are you sure you want to delete this account?')) {
-    S.delWealthAccount(id);
+    if (!S.delWealthAccount(id)) {
+      showWealthValidationError('This account cannot be deleted while it has transactions.');
+      return;
+    }
     refreshView();
   }
 }
@@ -4459,12 +4587,16 @@ async function doAddMoneyToAccount(accountId) {
   if (!acct) return;
 
   const accountLabel = await Auth.decryptField(acct.name, 'account');
-  const amount = parseFloat(prompt(`Amount to add to ${accountLabel}:`));
-  if (!amount || amount <= 0) return;
+  const amountInput = prompt(`Amount to add to ${accountLabel}:`);
+  const amount = Number(amountInput);
+  if (amountInput === null || !Number.isFinite(amount) || amount <= 0) {
+    showWealthValidationError('Enter a positive valid amount.');
+    return;
+  }
 
   const note = prompt('Note (optional):') || 'Deposit';
 
-  await S.addWealthTransaction({
+  const added = await S.addWealthTransaction({
     id: uid(),
     type: 'income',
     accountId,
@@ -4473,6 +4605,11 @@ async function doAddMoneyToAccount(accountId) {
     date: today(),
     note
   });
+
+  if (!added) {
+    showWealthValidationError('The money could not be added to this account.');
+    return;
+  }
 
   refreshView();
 }
@@ -4489,14 +4626,20 @@ async function doAddWealthTransaction() {
   const accountId = acctIn?.value;
   const toAccountId = $('wtxn-to')?.value;
   const category = type === 'transfer' ? 'Transfer' : (catIn?.value || 'Other');
-  const amount = parseFloat(amtIn?.value) || 0;
+  const amount = amtIn?.value === '' ? 0 : Number(amtIn.value);
   const date = dateIn?.value || today();
   const note = noteIn?.value?.trim() || '';
 
-  if (!accountId || amount <= 0) return;
-  if (type === 'transfer' && (!toAccountId || toAccountId === accountId)) return;
+  if (!accountId || !Number.isFinite(amount) || amount <= 0) {
+    showWealthValidationError('Select an account and enter a positive valid amount.');
+    return;
+  }
+  if (type === 'transfer' && (!toAccountId || toAccountId === accountId)) {
+    showWealthValidationError('Choose a different destination account for transfers.');
+    return;
+  }
 
-  await S.addWealthTransaction({
+  const added = await S.addWealthTransaction({
     id: uid(),
     type,
     accountId,
@@ -4506,6 +4649,11 @@ async function doAddWealthTransaction() {
     date,
     note
   });
+
+  if (!added) {
+    showWealthValidationError('Check the transaction details and try again.');
+    return;
+  }
 
   if (amtIn) amtIn.value = '';
   if (noteIn) noteIn.value = '';
@@ -4517,7 +4665,10 @@ async function doAddWealthTransaction() {
 
 function doDelWealthTransaction(id) {
   if (confirm('Delete this transaction? Account balance will be restored.')) {
-    S.delWealthTransaction(id);
+    if (!S.delWealthTransaction(id)) {
+      showWealthValidationError('This transaction could not be deleted safely.');
+      return;
+    }
     refreshView();
   }
 }
@@ -4526,10 +4677,16 @@ function doSetWealthBudget() {
   const catIn = $('wbud-cat');
   const amtIn = $('wbud-amt');
   const category = catIn?.value;
-  const amount = parseFloat(amtIn?.value) || 0;
-  if (!category || amount < 0) return;
+  const amount = amtIn?.value === '' ? 0 : Number(amtIn.value);
+  if (!category || !Number.isFinite(amount) || amount < 0) {
+    showWealthValidationError('Choose a category and enter a valid non-negative budget.');
+    return;
+  }
 
-  S.setWealthBudget(category, amount);
+  if (!S.setWealthBudget(category, amount)) {
+    showWealthValidationError('Choose a valid expense category.');
+    return;
+  }
   if (amtIn) amtIn.value = '';
   refreshView();
 }

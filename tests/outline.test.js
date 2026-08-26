@@ -91,7 +91,7 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, dateKey, today, addDays, thisWeek };`, context);
+  vm.runInContext(`${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek };`, context);
   return { ...context.__outline, storage };
 }
 
@@ -165,6 +165,53 @@ test('durable saves flush pending data and retry transient write failures', asyn
   app.DM.saveJournal();
   assert.equal(await app.DM.flushJournal(), true);
   assert.ok(directory.files.has('outline-journal.json'));
+});
+
+test('legacy data migrates to the current schema and future schemas are protected', async () => {
+  const legacyDirectory = createDirectory({
+    'outline-data.json': JSON.stringify({
+      tasks: [{ id: 'legacy-task', title: 'Legacy task', date: '2026-08-26', done: false }]
+    })
+  });
+  const legacyApp = loadApp();
+  legacyApp.DM.dirHandle = legacyDirectory;
+  const migrated = await legacyApp.DM.load();
+  assert.equal(migrated.schemaVersion, legacyApp.DATA_SCHEMA_VERSION);
+  assert.equal(migrated.tasks[0].subtasks.length, 0);
+  assert.match(legacyApp.DM.schemaMigrationNotice, /Legacy data upgraded/);
+
+  legacyApp.DM.fallback = true;
+  legacyApp.S.s('pvp_tasks', migrated.tasks);
+  legacyApp.DM.fallback = false;
+  assert.equal(await legacyApp.DM._doSave(), true);
+  assert.equal(JSON.parse(legacyDirectory.files.get('outline-data.json')).schemaVersion, legacyApp.DATA_SCHEMA_VERSION);
+
+  const futureDirectory = createDirectory({
+    'outline-data.json': JSON.stringify({ schemaVersion: legacyApp.DATA_SCHEMA_VERSION + 1, tasks: [] })
+  });
+  const futureApp = loadApp();
+  futureApp.DM.dirHandle = futureDirectory;
+  assert.equal(await futureApp.DM.load(), null);
+  assert.equal(futureApp.DM.schemaBlocked, true);
+  assert.equal(await futureApp.DM._doSave(), false);
+  assert.equal(futureDirectory.files.get('outline-data.json'), JSON.stringify({ schemaVersion: legacyApp.DATA_SCHEMA_VERSION + 1, tasks: [] }));
+});
+
+test('wealth rejects invalid values and prevents orphaned account data', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+
+  assert.equal(await app.S.addWealthAccount({ id: 'blank', name: ' ', type: 'bank', balance: 10, currency: '₹' }), false);
+  assert.equal(await app.S.addWealthAccount({ id: 'bad-number', name: 'Bad', type: 'bank', balance: '12abc', currency: '₹' }), false);
+  assert.equal(await app.S.addWealthAccount({ id: 'bank', name: 'Bank', type: 'bank', balance: 100, currency: '₹' }), true);
+  assert.equal(await app.S.addWealthTransaction({ id: 'missing-account', type: 'expense', accountId: 'missing', category: 'Food', amount: 10, date: '2026-08-26', note: '' }), false);
+  assert.equal(await app.S.addWealthTransaction({ id: 'bad-date', type: 'expense', accountId: 'bank', category: 'Food', amount: 10, date: '2026-02-30', note: '' }), false);
+  assert.equal(await app.S.addWealthTransaction({ id: 'bad-amount', type: 'expense', accountId: 'bank', category: 'Food', amount: '12abc', date: '2026-08-26', note: '' }), false);
+  assert.equal(app.S.setWealthBudget('Unknown', 100), false);
+  assert.equal(await app.S.addWealthTransaction({ id: 'valid-expense', type: 'expense', accountId: 'bank', category: 'Food', amount: 10, date: '2026-08-26', note: '' }), true);
+  assert.equal(app.S.delWealthAccount('bank'), false);
+  assert.equal(app.S.delWealthTransaction('valid-expense'), true);
+  assert.equal(app.S.delWealthAccount('bank'), true);
 });
 
 test('data backups rotate and corrupted primary data recovers from both backup slots', async () => {
