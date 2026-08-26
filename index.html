@@ -38,7 +38,7 @@
     </button>
 
     <div class="setup-fallback">
-      Don't want file saving? <a onclick="useFallbackMode()">Use browser storage instead</a>
+      Don't want file saving? <button class="link-btn" type="button" onclick="useFallbackMode()">Use browser storage instead</button>
     </div>
   </div>
 </div>
@@ -65,48 +65,48 @@
     <nav class="sidebar-nav">
       <div class="nav-section">
         <div class="nav-section-label">Overview</div>
-        <a class="nav-item" data-view="dashboard" onclick="navigate('dashboard')">
+        <button class="nav-item" type="button" data-view="dashboard" onclick="navigate('dashboard')">
           <span class="nav-ind"></span><span class="nav-emoji">◉</span><span>Dashboard</span>
-        </a>
+        </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Today</div>
-        <a class="nav-item" data-view="tasks" onclick="navigate('tasks')">
+        <button class="nav-item" type="button" data-view="tasks" onclick="navigate('tasks')">
           <span class="nav-ind"></span><span class="nav-emoji">☑</span><span>Tasks</span>
-        </a>
-        <a class="nav-item" data-view="habits" onclick="navigate('habits')">
+        </button>
+        <button class="nav-item" type="button" data-view="habits" onclick="navigate('habits')">
           <span class="nav-ind"></span><span class="nav-emoji">🔥</span><span>Habits</span>
-        </a>
-        <a class="nav-item" data-view="water" onclick="navigate('water')">
+        </button>
+        <button class="nav-item" type="button" data-view="water" onclick="navigate('water')">
           <span class="nav-ind"></span><span class="nav-emoji">💧</span><span>Water</span>
-        </a>
-        <a class="nav-item" data-view="study" onclick="navigate('study')">
+        </button>
+        <button class="nav-item" type="button" data-view="study" onclick="navigate('study')">
           <span class="nav-ind"></span><span class="nav-emoji">⏱</span><span>Study</span>
-        </a>
-        <a class="nav-item" data-view="sleep" onclick="navigate('sleep')">
+        </button>
+        <button class="nav-item" type="button" data-view="sleep" onclick="navigate('sleep')">
           <span class="nav-ind"></span><span class="nav-emoji">🌙</span><span>Sleep</span>
-        </a>
-        <a class="nav-item" data-view="journal" onclick="navigate('journal')">
+        </button>
+        <button class="nav-item" type="button" data-view="journal" onclick="navigate('journal')">
           <span class="nav-ind"></span><span class="nav-emoji">📖</span><span>Journal</span>
-        </a>
+        </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Projects</div>
-        <a class="nav-item" data-view="projects" onclick="navigate('projects')">
+        <button class="nav-item" type="button" data-view="projects" onclick="navigate('projects')">
           <span class="nav-ind"></span><span class="nav-emoji">🗂</span><span>Projects</span>
-        </a>
-        <a class="nav-item" data-view="ideas" onclick="navigate('ideas')">
+        </button>
+        <button class="nav-item" type="button" data-view="ideas" onclick="navigate('ideas')">
           <span class="nav-ind"></span><span class="nav-emoji">💡</span><span>Ideas</span>
-        </a>
+        </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Money</div>
-        <a class="nav-item" data-view="wealth" onclick="navigate('wealth')">
+        <button class="nav-item" type="button" data-view="wealth" onclick="navigate('wealth')">
           <span class="nav-ind"></span><span class="nav-emoji">💰</span><span>Wealth</span>
-        </a>
+        </button>
       </div>
     </nav>
     <div class="sidebar-footer">
@@ -121,6 +121,8 @@
       <div class="data-actions">
         <button class="data-action" onclick="DM.exportFallback()" title="Download a browser-storage backup">Export backup</button>
         <button class="data-action" onclick="document.getElementById('fallback-import-input').click()" title="Restore a browser-storage backup">Import backup</button>
+        <button class="data-action" onclick="showStorageDiagnostics()" title="Show storage diagnostics">Diagnostics</button>
+        <button class="data-action danger" onclick="resetOutlineData()" title="Delete all local Outline data">Reset data</button>
         <input id="fallback-import-input" type="file" accept="application/json" hidden onchange="importFallbackBackup(event)">
       </div>
       <div class="sidebar-date-txt" id="sidebar-date-txt"></div>

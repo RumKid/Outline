@@ -2048,6 +2048,22 @@ function chartNode(name, attrs = {}, text = '') {
   return node;
 }
 
+function showStorageDiagnostics() {
+  const keys = ['pvp_tasks','pvp_habits','pvp_water','pvp_sessions','pvp_sleep','pvp_wealth','pvp_projects','pvp_journal','pvp_ideas'];
+  const bytes = keys.reduce((total, key) => total + (localStorage.getItem(key)?.length || 0), 0);
+  showToast(`${DM.fallback ? 'Browser storage' : 'File storage'} · ${keys.filter(key => localStorage.getItem(key) !== null).length}/${keys.length} stores · ${(bytes / 1024).toFixed(1)} KB`, 'info');
+}
+
+function resetOutlineData() {
+  if (!confirm('Delete all Outline data from this browser? Export a backup first if you may need it.')) return;
+  const keys = ['pvp_tasks','pvp_habits','pvp_water','pvp_sessions','pvp_active','pvp_sleep','pvp_intentions','pvp_daily_summaries','pvp_wealth','pvp_projects','pvp_journal','pvp_ideas','pvp_enc_salt','pvp_enc_verify','pvp_private_vault','pvp_fallback_backup','pvp_fallback_backup_previous'];
+  keys.forEach(key => localStorage.removeItem(key));
+  S.clearCache();
+  Auth.lock();
+  showToast('Outline data reset', 'success');
+  renderView('dashboard');
+}
+
 async function importFallbackBackup(event) {
   const file = event?.target?.files?.[0];
   if (!file) return;

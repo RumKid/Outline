@@ -181,6 +181,7 @@
       font-size: 13.5px; font-weight: 500; transition: var(--t);
       cursor: pointer; user-select: none; position: relative;
       border: 1px solid transparent;
+      width: 100%; text-align: left; font-family: inherit;
     }
     .nav-item:hover { background: rgba(255,255,255,0.03); color: var(--text-primary); }
     .nav-item.active { background: rgba(255,255,255,0.05); border-color: var(--border-default); color: #fff; }
@@ -747,3 +748,4 @@
     .budget-over { background: var(--danger); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
 .data-actions{display:flex;gap:6px;margin-top:8px}.data-action{border:1px solid var(--border);background:transparent;color:var(--text-muted);border-radius:5px;padding:4px 7px;font-size:10px;cursor:pointer}.data-action:hover{color:var(--text-primary);border-color:var(--text-muted)}
 .outline-toast{position:fixed;right:22px;bottom:22px;z-index:1000;padding:11px 15px;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);box-shadow:0 8px 24px #0008;font-size:13px}.outline-toast.error{border-color:var(--danger);color:#fecaca}.outline-toast.success{border-color:var(--success);color:#bbf7d0}
+.link-btn{border:0;background:none;color:var(--text-secondary);padding:0;text-decoration:underline;cursor:pointer;font:inherit}.data-action.danger{color:var(--danger)}

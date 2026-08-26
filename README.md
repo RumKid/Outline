@@ -1,30 +1,38 @@
 # Outline
 
-A minimal, local-first productivity dashboard. It has a high-contrast dark theme, daily focus tracking, and keeps your data completely offline.
-
-This project was fully **vibe coded** with an AI assistant.
-
-Live demo: [rumkid.github.io/Outline](https://rumkid.github.io/Outline/)
-
----
-
-## How it works
-
-Instead of syncing to a database or uploading your logs to the cloud, Outline reads and writes your data directly on your computer's local drive as a single JSON file (`outline-data.json`). It uses the browser's native File System Access API to do this.
-
-None of your tracking data is uploaded or tracked in this Git repository.
+Outline is a local-first personal manager for tasks, habits, water, study, sleep, journal, projects, and wealth. It has no accounts, server, analytics, or online runtime dependencies.
 
 ## Features
 
-- Grayscale dashboard with monospace values.
-- Focus lists & habit streak tracking.
-- Study session timer.
-- Hydration & sleep logs.
-- Daily Intention (focus checklist).
-- Weekly Review (current week vs previous week stats and trend comparisons).
+- Today dashboard, daily tasks, subtasks, next-day task moves, and weekly task view.
+- Personal Jira-style project boards with project tasks, subtasks, statuses, and progress.
+- Study timer and session history, habits, hydration, sleep, journal, and ideas.
+- Wealth accounts, add-money actions, transactions, transfers, budgets, and summaries.
+- Optional AES-256 encrypted vault with locked writes and password rotation.
+- Durable file saves with rotating backups and recovery.
+- Browser-storage fallback with rotating backups plus JSON export/import.
 
-## Setup
+## Running
 
-1. Open [rumkid.github.io/Outline](https://rumkid.github.io/Outline/) in your browser.
-2. Select a folder on your machine where you want your data to live.
-3. That's it. Everything runs client-side in the browser.
+Open `index.html` directly in a modern browser. For file-backed storage, choose a data folder when prompted. If the File System Access API is unavailable, choose browser storage instead.
+
+For development checks:
+
+```bash
+npm test
+node --check app.js
+```
+
+The test suite covers local dates, offline behavior, rendering smoke tests, escaping, task/project/wealth behavior, encryption, durable saves, backups, schema handling, and fallback recovery.
+
+## Data and privacy
+
+File mode stores `outline-data.json` and `outline-journal.json` in the selected folder, with rotating backup files. Browser mode stores data in this browser's `localStorage`; use **Export backup** regularly. Setting a password encrypts personal data locally with Web Crypto. No data is uploaded by Outline.
+
+## Recovery tools
+
+Use **Export backup** before moving browsers or resetting data. **Import backup** restores a browser-mode JSON export. **Diagnostics** shows the active storage mode and approximate local store size. **Reset data** permanently deletes Outline data from the current browser after confirmation.
+
+## CI
+
+GitHub Actions runs the test suite, JavaScript syntax check, and whitespace validation on pushes and pull requests.
