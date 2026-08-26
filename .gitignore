@@ -1,5 +1,6 @@
-# Ignore local user data
-data/
+# Ignore local user data (preserve all personal files locally)
+/Data/
+/data/
 *.json
 !package-lock.json
 node_modules/
