@@ -204,7 +204,7 @@ test('tasks persist and reload with their date and subtasks', async () => {
   const tasks = secondApp.S.tasks();
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].title, 'Ship Outline');
-  assert.equal(tasks[0].date, '2026-08-26');
+  assert.equal(tasks[0].date, firstApp.today());
   assert.equal(tasks[0].subtasks[0].title, 'Check persistence');
 });
 
@@ -330,6 +330,28 @@ test('durable saves flush pending data and retry transient write failures', asyn
   app.DM.saveJournal();
   assert.equal(await app.DM.flushJournal(), true);
   assert.ok(directory.files.has('outline-journal.json'));
+});
+
+test('journal edits are persisted immediately and survive a reload during a pending write', async () => {
+  const directory = createDirectory({
+    'outline-journal.json': JSON.stringify({ '2026-08-26': { text: 'Old text' } })
+  });
+  const app = loadApp();
+  app.DM.dirHandle = directory;
+
+  await app.S.saveJournal({ '2026-08-26': { text: 'New text', mood: 'Good' } });
+  assert.equal(JSON.parse(directory.files.get('outline-journal.json'))['2026-08-26'].text, 'New text');
+  assert.equal(app.storage.getItem('pvp_journal_pending'), null);
+
+  const reloaded = loadApp(createStorage({
+    pvp_journal_pending: { '2026-08-26': { text: 'Recovered text' } }
+  }));
+  reloaded.DM.dirHandle = createDirectory({
+    'outline-journal.json': JSON.stringify({ '2026-08-26': { text: 'Stale disk text' } })
+  });
+  await reloaded.DM.loadAll();
+  await reloaded.DM.flushJournal();
+  assert.equal(reloaded.S.journalMap()['2026-08-26'].text, 'Recovered text');
 });
 
 test('locked app renders a lock screen for protected views', async () => {

@@ -44,6 +44,17 @@ test('previews and restores a browser backup', async ({ page }) => {
   await expect(page.getByText('Restored from backup')).not.toBeVisible();
 });
 
+test('keeps journal text and selected metrics after reload', async ({ page }) => {
+  await page.getByRole('button', { name: 'Journal' }).click();
+  await page.locator('#journal-text-area').fill('A journal entry that must survive reload.');
+  await page.locator('.j-capsule').filter({ hasText: 'Great' }).click();
+  await page.reload();
+  await completeSetup(page);
+  await page.getByRole('button', { name: 'Journal' }).click();
+  await expect(page.locator('#journal-text-area')).toHaveValue('A journal entry that must survive reload.');
+  await expect(page.locator('.j-capsule.active')).toContainText('Great');
+});
+
 test('sets and rotates the encryption password through the UI', async ({ page }) => {
   await page.getByRole('button', { name: 'Settings & Data' }).click();
   await page.getByRole('tab', { name: 'Security' }).click();

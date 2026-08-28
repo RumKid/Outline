@@ -533,6 +533,8 @@ const DM = {
   dirHandle: null,
   fileName: 'outline-data.json',
   journalFileName: 'outline-journal.json',
+  journalPendingKey: 'pvp_journal_pending',
+  journalDraftKey: 'pvp_journal_draft',
   backupFileName: 'outline-data.backup.json',
   backupPreviousFileName: 'outline-data.backup.previous.json',
   journalBackupFileName: 'outline-journal.backup.json',
@@ -916,8 +918,9 @@ const DM = {
     clearTimeout(this.journalRetryTimer);
     this.journalRetryTimer = null;
     clearTimeout(this.saveJournalTimer);
-    this.saveJournalTimer = setTimeout(() => this.flushJournal(), 800);
-    return this.journalSaveInFlight || Promise.resolve(true);
+    // Journal edits are already debounced by updateJournalText. Start the
+    // durable write immediately so a quick reload cannot lose the edit.
+    return this.flushJournal();
   },
 
   async flushJournal() {
@@ -969,6 +972,7 @@ const DM = {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         await this.writeText(this.journalFileName, JSON.stringify(data, null, 2));
+        localStorage.removeItem(this.journalPendingKey);
         this.journalRetryCount = 0;
         return true;
       } catch(e) {
@@ -997,9 +1001,44 @@ const DM = {
     const existingJournal = await this.loadJournal();
     if (existingJournal && !existing?.privateVault) {
       // Store the raw blob (encrypted or plain) — decryption happens at read time
-      S._cache['pvp_journal'] = null;
+      delete S._cache['pvp_journal'];
       localStorage.setItem('pvp_journal', JSON.stringify(existingJournal));
       S._cache['pvp_journal_dec'] = undefined; // invalidate decrypted cache
+    }
+    // If the tab was reloaded while the file write was in flight, restore the
+    // last local copy and retry it instead of replacing it with stale disk data.
+    const pendingJournal = localStorage.getItem(this.journalPendingKey);
+    if (pendingJournal && !existing?.privateVault) {
+      localStorage.setItem('pvp_journal', pendingJournal);
+      delete S._cache['pvp_journal'];
+      S._cache['pvp_journal_dec'] = undefined;
+      this.journalSavePending = true;
+      this.flushJournal();
+    }
+    // Text input is debounced for disk writes. Recover a draft typed just
+    // before reload, including when the debounce timer had not fired yet.
+    if (!Auth.hasPassword()) {
+      const draftRaw = localStorage.getItem(this.journalDraftKey);
+      if (draftRaw) {
+        try {
+          const draft = JSON.parse(draftRaw);
+          if (draft?.date && typeof draft.text === 'string') {
+            const rawMap = localStorage.getItem('pvp_journal');
+            const map = rawMap ? JSON.parse(rawMap) : {};
+            map[draft.date] = { ...(map[draft.date] || {}), text: draft.text };
+            const encoded = JSON.stringify(map);
+            localStorage.setItem('pvp_journal', encoded);
+            localStorage.setItem(this.journalPendingKey, encoded);
+            delete S._cache['pvp_journal'];
+            this.journalSavePending = true;
+            localStorage.removeItem(this.journalDraftKey);
+            this.flushJournal();
+          }
+        } catch (error) {
+          console.warn('Could not recover journal draft:', error);
+          localStorage.removeItem(this.journalDraftKey);
+        }
+      }
     }
   },
 
@@ -1345,8 +1384,11 @@ const S = {
       this._cache['pvp_journal'] = map;
       localStorage.setItem('pvp_journal', JSON.stringify(map));
     }
+    if (!DM.fallback) {
+      localStorage.setItem(DM.journalPendingKey, localStorage.getItem('pvp_journal') || '{}');
+    }
     Auth.queueVaultSave();
-    DM.saveJournal();
+    return DM.saveJournal();
   },
 
   // ── Ideas (encrypted when password is set) ────────────────────
@@ -3244,10 +3286,14 @@ function fmtFullDate(dStr) {
 
 function selectJournalOption(metric, value) {
   const d = journalSelectedDate;
-  S.journalMapAsync().then(map => {
+  const currentText = $('journal-text-area')?.value;
+  clearTimeout(journalDebounceTimer);
+  S.journalMapAsync().then(async map => {
     if (!map[d]) map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
+    if (currentText !== undefined) map[d].text = currentText;
     map[d][metric] = value;
-    S.saveJournal(map);
+    await S.saveJournal(map);
+    if (!Auth.hasPassword()) localStorage.removeItem(DM.journalDraftKey);
     refreshView();
   });
 }
@@ -3260,6 +3306,21 @@ function updateJournalText(text) {
   if (ccEl) ccEl.textContent = charCount;
   if (stEl) stEl.textContent = 'Saving changes...';
 
+  // Keep a reload-safe local copy immediately. The durable file save remains
+  // debounced below, but a page can disappear before that timer fires.
+  if (!Auth.hasPassword()) {
+    const d = journalSelectedDate;
+    const map = S.journalMap();
+    if (!map[d]) map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
+    map[d].text = text;
+    S._cache['pvp_journal'] = map;
+    localStorage.setItem('pvp_journal', JSON.stringify(map));
+    if (!DM.fallback) {
+      localStorage.setItem(DM.journalPendingKey, localStorage.getItem('pvp_journal'));
+    }
+    localStorage.setItem(DM.journalDraftKey, JSON.stringify({ date: d, text }));
+  }
+
   clearTimeout(journalDebounceTimer);
   journalDebounceTimer = setTimeout(async () => {
     const d = journalSelectedDate;
@@ -3267,6 +3328,7 @@ function updateJournalText(text) {
     if (!map[d]) map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
     map[d].text = text;
     await S.saveJournal(map);
+    if (!Auth.hasPassword()) localStorage.removeItem(DM.journalDraftKey);
     if (stEl) stEl.textContent = 'All changes saved locally';
   }, 500);
 }
