@@ -775,3 +775,31 @@
 .settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;max-width:980px}.settings-card{display:flex;flex-direction:column;gap:12px}.settings-card h2{font-size:18px;margin:0}.settings-help{color:var(--text-muted);font-size:13px;line-height:1.6;margin:0}.settings-actions{display:flex;gap:8px;flex-wrap:wrap}.settings-card .input{max-width:340px}.settings-error{color:var(--danger);font-size:12px;min-height:16px}.danger-zone{border-color:rgba(239,68,68,.4)}.backup-preview{position:fixed;inset:0;background:#0009;z-index:1200;display:grid;place-items:center;padding:20px}.backup-preview-card{width:min(440px,100%);background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:22px;box-shadow:0 20px 60px #000c}.backup-preview-card h2{margin:0 0 16px}.backup-preview-card p{font-size:13px;color:var(--text-secondary);margin:8px 0}.backup-preview-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
 .checklist-card label{display:flex;gap:9px;align-items:flex-start;color:var(--text-secondary);font-size:13px;line-height:1.5}.checklist-card input{accent-color:var(--success)}.recovery-card ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}.recovery-card li{display:flex;gap:6px;flex-wrap:wrap;color:var(--text-secondary);font-size:12px}.recovery-card li span{width:100%;color:var(--text-muted);font-size:11px}
 @media(max-width:800px){.settings-grid{grid-template-columns:1fr}.save-state-banner{left:0}}
+
+/* ── Board view subtasks ─────────────────────────────────────── */
+.project-board-subtasks{margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle)}
+.project-board-subtasks-bar{height:4px;background:var(--bg-elevated);border-radius:99px;overflow:hidden;margin-bottom:5px}
+.project-board-subtasks-fill{height:100%;background:var(--tasks,#a78bfa);border-radius:99px;transition:width .3s ease}
+.project-board-subtasks-count{font-size:10px;color:var(--text-muted);font-weight:600;letter-spacing:.3px}
+.project-board-subtasks-list{display:flex;flex-direction:column;gap:5px;margin-top:7px}
+.project-board-subtask-row{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none}
+.project-board-subtask-row.done{color:var(--text-muted)}
+.project-board-subtask-row.done span{text-decoration:line-through}
+
+/* ── Help modal ──────────────────────────────────────────────── */
+.help-modal{position:fixed;inset:0;background:#0009;z-index:1300;display:grid;place-items:center;padding:20px}
+.help-modal-card{width:min(480px,100%);background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;box-shadow:0 24px 64px #000d;overflow:hidden}
+.help-modal-header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;border-bottom:1px solid var(--border-subtle)}
+.help-modal-title{font-size:15px;font-weight:700;color:var(--text-primary);letter-spacing:.2px}
+.help-modal-close{border:0;background:none;color:var(--text-muted);font-size:16px;cursor:pointer;padding:2px 6px;border-radius:5px;line-height:1;transition:color .15s,background .15s}.help-modal-close:hover{color:var(--text-primary);background:var(--bg-card)}
+.help-modal-body{display:grid;grid-template-columns:1fr 1fr;gap:0;padding:16px 20px 20px}
+.help-modal-group{display:flex;flex-direction:column;gap:8px;padding:8px 12px 8px 0}
+.help-modal-group:last-child{padding-left:12px;border-left:1px solid var(--border-subtle);padding-right:0}
+.help-modal-group-label{font-size:10px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px}
+.help-modal-row{display:flex;align-items:center;gap:10px}
+.help-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:22px;padding:0 6px;background:var(--bg-card);border:1px solid var(--border-default);border-bottom-width:2px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:var(--text-secondary);flex-shrink:0}
+.help-modal-desc{font-size:12.5px;color:var(--text-secondary)}
+
+/* ── Topbar help button ──────────────────────────────────────── */
+.help-topbar-btn{border:1px solid var(--border-default);background:transparent;color:var(--text-muted);width:28px;height:28px;border-radius:50%;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color .15s,border-color .15s,background .15s}.help-topbar-btn:hover{color:var(--text-primary);border-color:var(--text-muted);background:var(--bg-card)}
+

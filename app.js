@@ -2515,18 +2515,41 @@ async function vProjects() {
       })
   );
 
-  const boardTasks = projects.flatMap(project => project.tasks.map(task => ({
-    ...task,
-    projectId: project.id,
-    projectTitle: project.decryptedTitle
-  })));
+  const boardTasks = await Promise.all(
+    projects.flatMap(project => project.tasks.map(async task => ({
+      ...task,
+      projectId: project.id,
+      projectTitle: project.decryptedTitle,
+      decryptedSubtasks: await Promise.all((task.subtasks || []).map(async sub => ({
+        ...sub,
+        decryptedTitle: await Auth.decryptField(sub.title, '🔒 [Locked Subtask]')
+      })))
+    })))
+  );
   const boardHTML = `<div class="project-board">
     ${Object.entries(projectStatusLabels).map(([status, label]) => {
       const columnTasks = boardTasks.filter(task => task.status === status);
       return `<section class="project-board-column" data-project-status="${status}">
         <div class="project-board-column-head"><span>${label}</span><strong>${columnTasks.length}</strong></div>
         <div class="project-board-items">
-          ${columnTasks.length === 0 ? '<div class="project-board-empty">No tasks</div>' : columnTasks.map(task => `<article class="project-board-task">
+          ${columnTasks.length === 0 ? '<div class="project-board-empty">No tasks</div>' : columnTasks.map(task => {
+            const subs = task.decryptedSubtasks || [];
+            const doneSubs = subs.filter(s => s.done).length;
+            const totalSubs = subs.length;
+            const subsHTML = totalSubs > 0 ? `
+              <div class="project-board-subtasks">
+                <div class="project-board-subtasks-bar">
+                  <div class="project-board-subtasks-fill" style="width:${Math.round((doneSubs/totalSubs)*100)}%"></div>
+                </div>
+                <span class="project-board-subtasks-count">${doneSubs}/${totalSubs} subtasks</span>
+                <div class="project-board-subtasks-list">
+                  ${subs.map(sub => `<label class="project-board-subtask-row${sub.done ? ' done' : ''}">
+                    <div class="task-cb${sub.done ? ' checked' : ''}" style="width:14px;height:14px;font-size:8px;border-radius:3px;flex-shrink:0;" onclick="doToggleProjectSubtask(${eventArg(task.projectId)},${eventArg(task.id)},${eventArg(sub.id)})">${sub.done ? '&#10003;' : ''}</div>
+                    <span>${escH(sub.decryptedTitle)}</span>
+                  </label>`).join('')}
+                </div>
+              </div>` : '';
+            return `<article class="project-board-task">
             <div class="project-board-task-project">${escH(task.projectTitle)}</div>
             <div class="project-board-task-title">${escH(task.decryptedTitle || '')}</div>
             <div class="project-board-task-meta">
@@ -2535,7 +2558,9 @@ async function vProjects() {
                 ${Object.entries(projectStatusLabels).map(([value, text]) => `<option value="${value}"${value === status ? ' selected' : ''}>${text}</option>`).join('')}
               </select>
             </div>
-          </article>`).join('')}
+            ${subsHTML}
+          </article>`;
+          }).join('')}
         </div>
       </section>`;
     }).join('')}
@@ -4320,7 +4345,70 @@ document.addEventListener('keydown',e=>{
   if(e.key==='4')navigate('water');
   if(e.key==='5')navigate('study');
   if(e.key==='6')navigate('sleep');
+  if(e.key==='?')showHelp();
 });
+
+/* ================================================================
+   KEYBOARD HELP MODAL
+   ================================================================ */
+const SHORTCUT_GROUPS = [
+  {
+    label: 'Navigation',
+    shortcuts: [
+      { key: '1', desc: 'Dashboard' },
+      { key: '2', desc: 'Tasks' },
+      { key: '3', desc: 'Habits' },
+      { key: '4', desc: 'Water' },
+      { key: '5', desc: 'Study' },
+      { key: '6', desc: 'Sleep' },
+    ]
+  },
+  {
+    label: 'Quick Actions',
+    shortcuts: [
+      { key: 'T', desc: 'Go to Tasks & focus input' },
+      { key: 'P', desc: 'Go to Projects & focus input' },
+      { key: 'W', desc: 'Log 250 ml water' },
+      { key: 'S', desc: 'Go to Study & start/stop timer' },
+      { key: '?', desc: 'Show this help' },
+      { key: 'Esc', desc: 'Close dialogs' },
+    ]
+  }
+];
+
+function showHelp() {
+  const existing = document.querySelector('.help-modal');
+  if (existing) { existing.remove(); return; }
+  const rows = SHORTCUT_GROUPS.map(group => `
+    <div class="help-modal-group">
+      <div class="help-modal-group-label">${escH(group.label)}</div>
+      ${group.shortcuts.map(s => `
+        <div class="help-modal-row">
+          <kbd class="help-kbd">${escH(s.key)}</kbd>
+          <span class="help-modal-desc">${escH(s.desc)}</span>
+        </div>`).join('')}
+    </div>`).join('');
+  const el = document.createElement('div');
+  el.className = 'help-modal';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', 'Keyboard shortcuts');
+  el.innerHTML = `
+    <div class="help-modal-card">
+      <div class="help-modal-header">
+        <span class="help-modal-title">Keyboard Shortcuts</span>
+        <button class="help-modal-close" onclick="closeHelp()" aria-label="Close">✕</button>
+      </div>
+      <div class="help-modal-body">${rows}</div>
+    </div>`;
+  el.addEventListener('click', e => { if (e.target === el) closeHelp(); });
+  document.body.appendChild(el);
+  el.querySelector('.help-modal-close')?.focus();
+}
+
+function closeHelp() {
+  document.querySelector('.help-modal')?.remove();
+}
 
 /* ================================================================
    APP INIT
@@ -4367,11 +4455,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (action === 'fallback-mode') useFallbackMode();
     if (action === 'restore-permission') restorePermission();
     if (action === 'data-status') handleDataStatusClick();
+    if (action === 'show-help') showHelp();
   });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       const dialog = document.querySelector('.backup-preview');
       if (dialog) { dialog.remove(); $('settings-import-input')?.focus(); }
+      closeHelp();
     }
   });
   initDate();

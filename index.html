@@ -135,17 +135,20 @@
         <span class="topbar-date-main" id="tb-date"></span>
         <span class="topbar-date-day"  id="tb-day"></span>
       </div>
-      <div class="score-pill">
-        <svg class="score-ring-mini" viewBox="0 0 28 28">
-          <circle cx="14" cy="14" r="11" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3"/>
-          <circle id="score-mini-arc" cx="14" cy="14" r="11" fill="none" stroke="#fbbf24"
-            stroke-width="3" stroke-linecap="round"
-            stroke-dasharray="69.1" stroke-dashoffset="69.1"
-            transform="rotate(-90 14 14)"
-            style="filter:drop-shadow(0 0 4px #fbbf2488);transition:stroke-dashoffset 0.6s ease"/>
-        </svg>
-        <span class="score-pill-label">Score</span>
-        <span class="score-pill-value" id="score-val">—</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="help-topbar-btn" data-action="show-help" title="Keyboard shortcuts (?)">?</button>
+        <div class="score-pill">
+          <svg class="score-ring-mini" viewBox="0 0 28 28">
+            <circle cx="14" cy="14" r="11" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3"/>
+            <circle id="score-mini-arc" cx="14" cy="14" r="11" fill="none" stroke="#fbbf24"
+              stroke-width="3" stroke-linecap="round"
+              stroke-dasharray="69.1" stroke-dashoffset="69.1"
+              transform="rotate(-90 14 14)"
+              style="filter:drop-shadow(0 0 4px #fbbf2488);transition:stroke-dashoffset 0.6s ease"/>
+          </svg>
+          <span class="score-pill-label">Score</span>
+          <span class="score-pill-value" id="score-val">—</span>
+        </div>
       </div>
     </header>
     <main class="content" id="content"></main>
