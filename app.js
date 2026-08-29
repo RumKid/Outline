@@ -1246,9 +1246,9 @@ const S = {
     let h=this.g('pvp_habits');
     if(!h){
       h=[
-        {id:uid(),name:'Workout',icon:'️',color:'#fb923c',logs:[],isDefault:true},
+        {id:uid(),name:'Workout',icon:'',color:'#fb923c',logs:[],isDefault:true},
         {id:uid(),name:'Read',   icon:'',color:'#f472b6',logs:[],isDefault:true},
-        {id:uid(),name:'Study',  icon:'✏️', color:'#a78bfa',logs:[],isDefault:true},
+        {id:uid(),name:'Study',  icon:'', color:'#a78bfa',logs:[],isDefault:true},
         {id:uid(),name:'Journal',icon:'',color:'#34d399',logs:[],isDefault:true},
       ];
       this.s('pvp_habits',h);
@@ -2899,17 +2899,24 @@ function vHabits(){
       </div>
     </div>
     <div class="habits-list">${habits.map(h=>habitHTML(h,week)).join('')}</div>
+    ${isAddHabitMode ? `
+    <div class="card" style="margin-top:14px;display:flex;gap:8px;padding:12px;">
+      <input type="text" id="new-habit-name" class="input" placeholder="New habit name..." style="flex:1;" onkeydown="newHabitKeyDown(event)">
+      <button class="btn btn-primary" onclick="submitNewHabit()">Save</button>
+      <button class="btn btn-ghost" onclick="toggleAddHabitMode()">Cancel</button>
+    </div>
+    ` : `
     <div style="display:flex;gap:12px;margin-top:14px;">
-      <button class="add-habit-dashed" style="flex:1;width:auto;" onclick="doAddHabit()">+ Add Habit</button>
+      <button class="add-habit-dashed" style="flex:1;width:auto;" onclick="toggleAddHabitMode()">+ Add Habit</button>
       <button class="add-habit-dashed" style="flex:1;width:auto;${delBtnStyle}" onclick="toggleDeleteHabitMode()">${delBtnText}</button>
     </div>
+    `}
   </div>`;
 }
 
 function habitHTML(h,week){
   var done = h.logs.includes(today());
   var streak = S.streak(h);
-  var canDelete = !h.isDefault;
   var streakTxt = streak > 0 ? ('' + streak + ' day streak') : '\u25cb No streak yet';
   var weekDots = week.map(function(d){
     var on = h.logs.includes(d);
@@ -2918,11 +2925,7 @@ function habitHTML(h,week){
 
   var rightAction = '';
   if (isDeleteHabitMode) {
-    if (canDelete) {
-      rightAction = '<button class="habit-check" onclick="doDelHabit(' + eventArg(h.id) + ')" style="border-color:var(--danger);color:var(--danger);background:rgba(239,68,68,0.1);font-weight:bold;cursor:pointer;">&#10005;</button>';
-    } else {
-      rightAction = '<div style="width:38px;height:38px;flex-shrink:0;"></div>';
-    }
+    rightAction = '<button class="habit-check" onclick="doDelHabit(' + eventArg(h.id) + ')" style="border-color:var(--danger);color:var(--danger);background:rgba(239,68,68,0.1);font-weight:bold;cursor:pointer;">&#10005;</button>';
   } else {
     var safeColor = escH(h.color);
     var checkStyle = done ? 'background:' + safeColor + ';border-color:' + safeColor + ';box-shadow:0 0 14px ' + safeColor + '55;' : '';
@@ -2943,18 +2946,26 @@ function habitHTML(h,week){
 }
 
 function doToggleHabit(id){ S.toggleHabit(id); refreshView(); updateScore(); }
-function toggleDeleteHabitMode(){ isDeleteHabitMode = !isDeleteHabitMode; refreshView(); }
+function toggleDeleteHabitMode(){ isDeleteHabitMode = !isDeleteHabitMode; isAddHabitMode = false; refreshView(); }
+function toggleAddHabitMode(){ isAddHabitMode = !isAddHabitMode; isDeleteHabitMode = false; refreshView(); if(isAddHabitMode) setTimeout(()=>$('new-habit-name')?.focus(), 50); }
 function doDelHabit(id){
   if(!confirm('Delete this habit? All its history will be lost.')) return;
   S.saveHabits(S.habits().filter(function(h){ return h.id !== id; }));
   refreshView(); updateScore();
 }
-function doAddHabit(){
-  const name=prompt('Habit name:'); if(!name?.trim()) return;
-  const icons=[],cols=['#fb923c','#f472b6','#a78bfa','#34d399','#38bdf8','#fbbf24'];
+function newHabitKeyDown(e) {
+  if (e.key === 'Enter') submitNewHabit();
+  if (e.key === 'Escape') toggleAddHabitMode();
+}
+function submitNewHabit(){
+  const name = $('new-habit-name')?.value;
+  if (!name?.trim()) { toggleAddHabitMode(); return; }
+  const cols=['#fb923c','#f472b6','#a78bfa','#34d399','#38bdf8','#fbbf24'];
   const h=S.habits();
-  h.push({id:uid(),name:name.trim(),icon:icons[h.length%icons.length],color:cols[h.length%cols.length],logs:[],isDefault:false});
-  S.saveHabits(h); refreshView();
+  h.push({id:uid(),name:name.trim(),icon:'',color:cols[h.length%cols.length],logs:[],isDefault:false});
+  S.saveHabits(h); 
+  isAddHabitMode = false;
+  refreshView();
 }
 
 /* ── WATER ── */
@@ -3622,9 +3633,11 @@ async function vIdeas() {
    ================================================================ */
 let curView=null;
 let isDeleteHabitMode = false;
+let isAddHabitMode = false;
 function navigate(v){
   if (v !== 'habits') {
     isDeleteHabitMode = false;
+    isAddHabitMode = false;
   }
   // Always re-render journal/ideas (lock state may have changed)
   const alwaysRender = v==='journal' || v==='ideas';
