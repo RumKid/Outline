@@ -34,7 +34,7 @@
     </div>
 
     <button class="setup-btn" id="setup-pick-btn" data-action="pick-folder">
-      📁 &nbsp;Select Data Folder
+      Select Data Folder
     </button>
 
     <div class="setup-fallback">
@@ -45,7 +45,7 @@
 
 <!-- ══════════════════ RESTORE BANNER ══════════════════ -->
 <div id="restore-banner" class="hidden">
-  <span class="restore-icon">💾</span>
+  <span class="restore-icon"></span>
   <div class="restore-txt">
     <strong>Resume your saved data?</strong> Outline found a previously connected data folder.
   </div>
@@ -66,64 +66,57 @@
       <div class="nav-section">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item" type="button" data-view="dashboard">
-          <span class="nav-ind"></span><span class="nav-emoji">◉</span><span>Dashboard</span>
+          <span class="nav-ind"></span><span>Dashboard</span>
         </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Today</div>
         <button class="nav-item" type="button" data-view="tasks">
-          <span class="nav-ind"></span><span class="nav-emoji">☑</span><span>Tasks</span>
+          <span class="nav-ind"></span><span>Tasks</span>
         </button>
         <button class="nav-item" type="button" data-view="habits">
-          <span class="nav-ind"></span><span class="nav-emoji">🔥</span><span>Habits</span>
+          <span class="nav-ind"></span><span>Habits</span>
         </button>
         <button class="nav-item" type="button" data-view="water">
-          <span class="nav-ind"></span><span class="nav-emoji">💧</span><span>Water</span>
+          <span class="nav-ind"></span><span>Water</span>
         </button>
         <button class="nav-item" type="button" data-view="study">
-          <span class="nav-ind"></span><span class="nav-emoji">⏱</span><span>Study</span>
+          <span class="nav-ind"></span><span>Study</span>
         </button>
         <button class="nav-item" type="button" data-view="sleep">
-          <span class="nav-ind"></span><span class="nav-emoji">🌙</span><span>Sleep</span>
+          <span class="nav-ind"></span><span>Sleep</span>
         </button>
         <button class="nav-item" type="button" data-view="journal">
-          <span class="nav-ind"></span><span class="nav-emoji">📖</span><span>Journal</span>
+          <span class="nav-ind"></span><span>Journal</span>
         </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Projects</div>
         <button class="nav-item" type="button" data-view="projects">
-          <span class="nav-ind"></span><span class="nav-emoji">🗂</span><span>Projects</span>
+          <span class="nav-ind"></span><span>Projects</span>
         </button>
         <button class="nav-item" type="button" data-view="ideas">
-          <span class="nav-ind"></span><span class="nav-emoji">💡</span><span>Ideas</span>
+          <span class="nav-ind"></span><span>Ideas</span>
         </button>
       </div>
 
       <div class="nav-section">
         <div class="nav-section-label">Money</div>
         <button class="nav-item" type="button" data-view="wealth">
-          <span class="nav-ind"></span><span class="nav-emoji">💰</span><span>Wealth</span>
+          <span class="nav-ind"></span><span>Wealth</span>
         </button>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">System</div>
         <button class="nav-item" type="button" data-view="settings">
-          <span class="nav-ind"></span><span class="nav-emoji">⚙</span><span>Settings &amp; Data</span>
+          <span class="nav-ind"></span><span>Settings &amp; Data</span>
         </button>
       </div>
     </nav>
     <div class="sidebar-footer">
       <div class="sidebar-footer-label">Data</div>
-      <div class="data-status" id="data-status-badge" data-action="data-status" title="Click to retry saving or change data folder">
-        <div class="data-dot disconnected" id="data-dot"></div>
-        <div>
-          <div class="data-status-txt" id="data-status-txt">Not connected</div>
-          <div class="data-status-sub" id="data-status-sub">Click to connect folder</div>
-        </div>
-      </div>
       <div class="sidebar-date-txt" id="sidebar-date-txt"></div>
     </div>
   </aside>

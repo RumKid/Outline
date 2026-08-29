@@ -790,7 +790,7 @@
 .help-modal{position:fixed;inset:0;background:#0009;z-index:1300;display:grid;place-items:center;padding:20px}
 .help-modal-card{width:min(480px,100%);background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;box-shadow:0 24px 64px #000d;overflow:hidden}
 .help-modal-header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;border-bottom:1px solid var(--border-subtle)}
-.help-modal-title{font-size:15px;font-weight:700;color:var(--text-primary);letter-spacing:.2px}
+.help-modal-title{font-size:18px;font-weight:700;color:var(--text-primary);letter-spacing:.2px}
 .help-modal-close{border:0;background:none;color:var(--text-muted);font-size:16px;cursor:pointer;padding:2px 6px;border-radius:5px;line-height:1;transition:color .15s,background .15s}.help-modal-close:hover{color:var(--text-primary);background:var(--bg-card)}
 .help-modal-body{display:grid;grid-template-columns:1fr 1fr;gap:0;padding:16px 20px 20px}
 .help-modal-group{display:flex;flex-direction:column;gap:8px;padding:8px 12px 8px 0}

@@ -434,10 +434,10 @@ const Auth = (() => {
           try {
             return await this.decrypt(val);
           } catch {
-            return placeholder || '🔒 [Error Decrypting]';
+            return placeholder || '[Error Decrypting]';
           }
         }
-        return placeholder || '🔒 [Locked]';
+        return placeholder || '[Locked]';
       }
       return val;
     }
@@ -1098,13 +1098,15 @@ const DM = {
   },
 
   setStatus(state, txt, sub) {
+    this.currentStatus = { state, txt, sub };
     const dot = $('data-dot'), stxt = $('data-status-txt'), ssub = $('data-status-sub');
-    if (!dot) return;
-    dot.className = 'data-dot';
-    if (state==='connected')    { dot.classList.add('connected'); }
-    else if (state==='saving')  { dot.classList.add('saving'); }
-    else if (state==='browser') { dot.classList.add('connected'); }
-    else                        { dot.classList.add('disconnected'); }
+    if (dot) {
+      dot.className = 'data-dot';
+      if (state==='connected')    { dot.classList.add('connected'); }
+      else if (state==='saving')  { dot.classList.add('saving'); }
+      else if (state==='browser') { dot.classList.add('connected'); }
+      else                        { dot.classList.add('disconnected'); }
+    }
     if (stxt) stxt.textContent = txt;
     if (ssub) ssub.textContent = sub;
     const banner = $('save-state-banner');
@@ -1153,7 +1155,7 @@ async function pickFolder(isChange) {
   if (btn) btn.textContent = '⏳  Opening folder picker…';
   const ok = await DM.pick();
   if (!ok) {
-    if (btn) btn.textContent = '📁 \u00A0Select Data Folder';
+    if (btn) btn.textContent = ' Select Data Folder';
     return;
   }
   await finishSetup(isChange);
@@ -1244,10 +1246,10 @@ const S = {
     let h=this.g('pvp_habits');
     if(!h){
       h=[
-        {id:uid(),name:'Workout',icon:'🏋️',color:'#fb923c',logs:[],isDefault:true},
-        {id:uid(),name:'Read',   icon:'📚',color:'#f472b6',logs:[],isDefault:true},
+        {id:uid(),name:'Workout',icon:'️',color:'#fb923c',logs:[],isDefault:true},
+        {id:uid(),name:'Read',   icon:'',color:'#f472b6',logs:[],isDefault:true},
         {id:uid(),name:'Study',  icon:'✏️', color:'#a78bfa',logs:[],isDefault:true},
-        {id:uid(),name:'Journal',icon:'📓',color:'#34d399',logs:[],isDefault:true},
+        {id:uid(),name:'Journal',icon:'',color:'#34d399',logs:[],isDefault:true},
       ];
       this.s('pvp_habits',h);
     } else {
@@ -1343,7 +1345,7 @@ const S = {
   async todayIntentionDecrypted() {
     const raw = this.todayIntention();
     if (!raw) return '';
-    return Auth.decryptField(raw, '🔒 [Locked Intention]');
+    return Auth.decryptField(raw, '[Locked Intention]');
   },
   async setIntention(val) {
     const i = this.intentions();
@@ -2132,7 +2134,15 @@ function vSettings() {
   const history = recoveryHistory();
   const checklist = localStorage.getItem('pvp_privacy_checklist_done') !== '1';
   const tabs = `<div class="settings-tabs" role="tablist"><button class="settings-tab ${settingsTab === 'storage' ? 'active' : ''}" role="tab" onclick="setSettingsTab('storage')">Storage</button><button class="settings-tab ${settingsTab === 'security' ? 'active' : ''}" role="tab" onclick="setSettingsTab('security')">Security</button><button class="settings-tab ${settingsTab === 'recovery' ? 'active' : ''}" role="tab" onclick="setSettingsTab('recovery')">Recovery</button></div>`;
-  const storage = `<section class="card settings-card"><div class="sec-label">Storage</div><h2>${DM.fallback ? 'Browser storage' : 'File storage'}</h2><p class="settings-help">${DM.fallback ? 'Data is stored in this browser. Export backups regularly.' : `Data is stored in ${escH(DM.dirHandle?.name || 'your selected folder')}.`}</p><div class="settings-actions"><button class="btn btn-primary" type="button" onclick="DM.exportCurrentData()">Download full backup</button><button class="btn btn-ghost" type="button" onclick="$('settings-import-input').click()">Restore backup</button><input id="settings-import-input" type="file" accept="application/json" hidden onchange="showBackupPreview(this.files[0])"></div><button class="btn btn-ghost" type="button" onclick="showStorageDiagnostics()">Run storage diagnostics</button></section>`;
+  let dataStatusWidget = '';
+  if (DM.currentStatus) {
+    let dc = 'disconnected';
+    const st = DM.currentStatus.state;
+    if (st==='connected'||st==='browser') dc='connected';
+    else if (st==='saving') dc='saving';
+    dataStatusWidget = `<div class="data-status" style="margin-top:20px;padding-top:12px;border-top:1px solid var(--border-subtle);cursor:pointer;" id="data-status-badge" data-action="data-status" title="Click to retry saving or change data folder"><div class="data-dot ${dc}" id="data-dot"></div><div><div class="data-status-txt" id="data-status-txt">${escH(DM.currentStatus.txt)}</div><div class="data-status-sub" id="data-status-sub">${escH(DM.currentStatus.sub)}</div></div></div>`;
+  }
+  const storage = `<section class="card settings-card"><div class="sec-label">Storage</div><h2>${DM.fallback ? 'Browser storage' : 'File storage'}</h2><p class="settings-help">${DM.fallback ? 'Data is stored in this browser. Export backups regularly.' : `Data is stored in ${escH(DM.dirHandle?.name || 'your selected folder')}.`}</p><div class="settings-actions"><button class="btn btn-primary" type="button" onclick="DM.exportCurrentData()">Download full backup</button><button class="btn btn-ghost" type="button" onclick="$('settings-import-input').click()">Restore backup</button><input id="settings-import-input" type="file" accept="application/json" hidden onchange="showBackupPreview(this.files[0])"></div><button class="btn btn-ghost" type="button" onclick="showStorageDiagnostics()">Run storage diagnostics</button>${dataStatusWidget}</section>`;
   const security = `<section class="card settings-card"><div class="sec-label">Encryption status</div><h2>${encryptionState}</h2><p class="settings-help">${encrypted ? 'Your personal data is encrypted locally. Keep your password safe; it cannot be recovered.' : 'Set a password to encrypt personal data and require unlock access.'}</p>${encrypted ? `<input id="settings-new-password" class="input" type="password" placeholder="New password" autocomplete="new-password"><input id="settings-confirm-password" class="input" type="password" placeholder="Confirm new password" autocomplete="new-password"><button class="btn btn-primary" type="button" onclick="doRotatePassword()">Change password</button><div id="settings-password-error" class="settings-error" role="alert"></div>` : `<input id="settings-first-password" class="input" type="password" placeholder="Create password" autocomplete="new-password"><input id="settings-confirm-first-password" class="input" type="password" placeholder="Confirm password" autocomplete="new-password"><button class="btn btn-primary" type="button" onclick="doSetInitialPassword()">Enable encryption</button><div id="settings-password-error" class="settings-error" role="alert"></div>`}</section>${checklist ? `<section class="card settings-card checklist-card"><div class="sec-label">First-run privacy checklist</div><label><input type="checkbox"> I understand Outline stores data locally.</label><label><input type="checkbox"> I will export backups before resetting or changing browsers.</label><label><input type="checkbox"> I understand forgotten encryption passwords cannot be recovered.</label><button class="btn btn-primary" type="button" onclick="completePrivacyChecklist()">I understand</button></section>` : ''}`;
   const recovery = `<section class="card settings-card recovery-card"><div class="sec-label">Recovery history</div>${history.length ? `<ul>${history.map(item => `<li><strong>${escH(item.type)}</strong> — ${escH(item.message)}<span>${escH(new Date(item.at).toLocaleString())}</span></li>`).join('')}</ul>` : '<p class="settings-help">No backups or migrations have been restored yet.</p>'}</section><section class="card settings-card danger-zone"><div class="sec-label">Danger zone</div><p class="settings-help">Reset removes Outline data from this browser. Export a backup first.</p><button class="btn btn-ghost" type="button" onclick="resetOutlineData()">Reset browser data</button></section>`;
   return `<div class="view-enter"><div class="page-header"><h1 class="page-title">Settings &amp; Data</h1><p class="page-sub">Control storage, encryption, backups, and recovery.</p></div>${tabs}<div class="settings-grid">${settingsTab === 'storage' ? storage : settingsTab === 'security' ? security : recovery}</div></div>`;
@@ -2229,13 +2239,7 @@ function fmtCurrencyCompact(val, currency = '₹') {
   return currency + num.toFixed(0);
 }
 function getCategoryEmoji(cat) {
-  const map = {
-    'Food': '🍕', 'Transport': '🚗', 'Shopping': '🛍️', 'Bills': '⚡',
-    'Entertainment': '🎬', 'Health': '🩺', 'Education': '📚',
-    'Subscriptions': '📱', 'Salary': '💼', 'Freelance': '💻',
-    'Investments': '📈', 'Gift': '🎁', 'Other': '💰'
-  };
-  return map[cat] || '🏷️';
+  return '';
 }
 
 async function vDashboard(){
@@ -2263,7 +2267,7 @@ async function vDashboard(){
 
   return `<div class="view-enter">
     <div class="page-header">
-      <h1 class="page-title">Good ${greeting()} 👋</h1>
+      <h1 class="page-title">Good ${greeting()} </h1>
       <p class="page-sub">Here's your life at a glance.</p>
     </div>
 
@@ -2278,7 +2282,7 @@ async function vDashboard(){
           <div class="dash-label">Tasks</div>
           <div class="dash-value">${doneTasks}<span style="font-family:inherit;font-size:16px;color:var(--text-muted);font-weight:500;">/${todayTasks.length}</span></div>
           <div class="dash-sub">${todayTasks.length===0?'No tasks yet':`${Math.round(taskPct*100)}% done`}</div>
-        </div><div class="dash-icon">☑️</div></div>
+        </div><div class="dash-icon"></div></div>
         <div class="pbar-wrap"><div class="pbar-fill" style="width:${taskPct*100}%;background:#ffffff;"></div></div>
       </div></div>
 
@@ -2287,7 +2291,7 @@ async function vDashboard(){
           <div class="dash-label">Water</div>
           <div class="dash-value">${(waterMl/1000).toFixed(1)}<span style="font-family:inherit;font-size:14px;color:var(--text-muted);font-weight:500;">L</span></div>
           <div class="dash-sub">of 3.5L goal</div>
-        </div><div class="dash-icon">💧</div></div>
+        </div><div class="dash-icon"></div></div>
         <div class="pbar-wrap"><div class="pbar-fill" style="width:${waterPct*100}%;background:#ffffff;"></div></div>
         <button class="water-tap-btn" onclick="event.stopPropagation();dashAddWater()" title="+250ml">+</button>
       </div></div>
@@ -2297,7 +2301,7 @@ async function vDashboard(){
           <div class="dash-label">Habits</div>
           <div class="dash-value">${doneH}<span style="font-family:inherit;font-size:16px;color:var(--text-muted);font-weight:500;">/${habits.length}</span></div>
           <div class="dash-sub">${Math.round(habitPct*100)}% today</div>
-        </div><div class="dash-icon">🔥</div></div>
+        </div><div class="dash-icon"></div></div>
         <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:2px;">
           ${habits.map(h=>`<div title="${escH(h.name)}" style="width:9px;height:9px;border-radius:2.5px;transition:0.2s;background:${h.logs.includes(today())?'#ffffff':'var(--border-default)'};"></div>`).join('')}
         </div>
@@ -2308,7 +2312,7 @@ async function vDashboard(){
           <div class="dash-label">Study</div>
           <div class="dash-value">${fmtDuration(studyMins)}</div>
           <div class="dash-sub">studied today</div>
-        </div><div class="dash-icon">⏱</div></div>
+        </div><div class="dash-icon"></div></div>
         ${S.activeSession()?`<div style="font-size:11px;color:var(--text-primary);background:var(--bg-elevated);border:1px solid var(--border-default);padding:3px 10px;border-radius:20px;display:inline-block;margin-top:4px;">● Session active</div>`:''}
       </div></div>
 
@@ -2317,7 +2321,7 @@ async function vDashboard(){
           <div class="dash-label">Sleep</div>
           <div class="dash-value">${sl?fmtDuration(slMins):'—'}</div>
           <div class="dash-sub">${sl?`${sl.bed} → ${sl.wake}`:'Not logged yet'}</div>
-        </div><div class="dash-icon">🌙</div></div>
+        </div><div class="dash-icon"></div></div>
         ${sl?`<div style="display:flex;align-items:center;gap:7px;margin-top:4px;">
           <div style="flex:1;height:4px;background:var(--border-default);border-radius:2px;overflow:hidden;">
             <div style="width:${clamp(slMins/480*100,0,100)}%;height:100%;background:#ffffff;border-radius:2px;transition:0.6s;"></div>
@@ -2331,7 +2335,7 @@ async function vDashboard(){
           <div class="dash-label">Wealth</div>
           <div class="dash-value">${fmtCurrencyCompact(netWorth)}</div>
           <div class="dash-sub">${thisMonthExpenses > 0 ? fmtCurrencyCompact(thisMonthExpenses) + ' spent this month' : 'Net Worth'}</div>
-        </div><div class="dash-icon">💰</div></div>
+        </div><div class="dash-icon"></div></div>
         <div style="font-size:11px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
           <span>${wealthData.accounts.length} Account${wealthData.accounts.length !== 1 ? 's' : ''}</span>
           <span style="color:var(--text-primary);font-weight:600;">Manage →</span>
@@ -2413,15 +2417,15 @@ async function vTasks(){
         <div class="add-task-row">
           <input id="task-in" class="input" style="flex:1;" placeholder="What needs to get done?" maxlength="100" onkeydown="if(event.key==='Enter')doAddTask()">
           <select id="task-pri" class="input" style="width:auto;">
-            <option value="high">🔴 High</option>
-            <option value="medium" selected>🟡 Medium</option>
-            <option value="low">🟢 Low</option>
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
           </select>
           <button class="btn btn-primary" onclick="doAddTask()">+ Add</button>
         </div>
         <div class="task-list">
           ${todayTasks.length===0
-            ?`<div class="empty"><div class="empty-icon">✅</div><div class="empty-txt">No tasks yet. Add something above.</div></div>`
+            ?`<div class="empty"><div class="empty-txt">No tasks yet. Add something above.</div></div>`
             :taskItemsHTML}
         </div>
         ${todayTasks.length>0?`
@@ -2437,9 +2441,9 @@ async function vTasks(){
         </div>
         <div class="card"><div class="sec-label">Priority</div>
           <div style="display:flex;flex-direction:column;gap:9px;margin-top:2px;">
-            ${[['high','🔴','High'],['medium','🟡','Medium'],['low','🟢','Low']].map(([p,e,l])=>`
+            ${[['high','High'],['medium','Medium'],['low','Low']].map(([p,l])=>`
               <div style="display:flex;align-items:center;gap:9px;font-size:13px;">
-                <span>${e}</span><span style="color:var(--text-secondary);">${l}</span>
+                <span style="color:var(--text-secondary);">${l}</span>
                 <span style="margin-left:auto;font-weight:700;color:var(--text-secondary);">${todayTasks.filter(t=>t.priority===p).length}</span>
               </div>`).join('')}
           </div>
@@ -2477,7 +2481,7 @@ async function vWeekTasks() {
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;"><div><h1 class="page-title">Tasks</h1><p class="page-sub">Your Monday–Sunday task overview</p></div>${taskViewModeButtons()}</div>
     <div class="add-task-row">
       <input id="task-in" class="input" style="flex:1;" placeholder="Add a task for today..." maxlength="100" onkeydown="if(event.key==='Enter')doAddTask()">
-      <select id="task-pri" class="input" style="width:auto;"><option value="high">🔴 High</option><option value="medium" selected>🟡 Medium</option><option value="low">🟢 Low</option></select>
+      <select id="task-pri" class="input" style="width:auto;"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select>
       <button class="btn btn-primary" onclick="doAddTask()">+ Add</button>
     </div>
     <div class="card" style="margin-bottom:16px;padding:14px 16px;display:flex;align-items:center;gap:14px;">
@@ -2497,11 +2501,11 @@ async function vProjects() {
     (S.projects() || [])
       .filter(project => project.status !== 'done')
       .map(async project => {
-        const title = await Auth.decryptField(project.title, '🔒 [Locked Project]');
+        const title = await Auth.decryptField(project.title, '[Locked Project]');
         const description = await Auth.decryptField(project.description, '');
         const tasks = await Promise.all((project.tasks || []).map(async task => ({
           ...task,
-          decryptedTitle: await Auth.decryptField(task.title, '🔒 [Locked Task]')
+          decryptedTitle: await Auth.decryptField(task.title, '[Locked Task]')
         })));
         const completed = tasks.filter(task => task.done).length;
         return {
@@ -2522,7 +2526,7 @@ async function vProjects() {
       projectTitle: project.decryptedTitle,
       decryptedSubtasks: await Promise.all((task.subtasks || []).map(async sub => ({
         ...sub,
-        decryptedTitle: await Auth.decryptField(sub.title, '🔒 [Locked Subtask]')
+        decryptedTitle: await Auth.decryptField(sub.title, '[Locked Subtask]')
       })))
     })))
   );
@@ -2594,7 +2598,7 @@ async function vProjects() {
 
     ${projectViewMode === 'board' ? boardHTML : projects.length === 0 ? `
       <div class="card">
-        <div class="empty"><div class="empty-icon">🗂</div><div class="empty-txt">No active projects yet. Add the first one above.</div></div>
+        <div class="empty"><div class="empty-txt">No active projects yet. Add the first one above.</div></div>
       </div>
     ` : `
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:16px;align-items:start;">
@@ -2620,15 +2624,15 @@ async function vProjects() {
                 <div class="add-task-row" style="margin-bottom:2px;">
                   <input id="proj-task-in-${escH(project.id)}" class="input" style="flex:1;" placeholder="Add a project task" maxlength="100" onkeydown="if(event.key==='Enter')doAddProjectTask(${eventArg(project.id)})">
                   <select id="proj-task-pri-${escH(project.id)}" class="input" style="width:auto;">
-                    <option value="high">🔴 High</option>
-                    <option value="medium" selected>🟡 Medium</option>
-                    <option value="low">🟢 Low</option>
+                    <option value="high">High</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="low">Low</option>
                   </select>
                   <button class="btn btn-primary" onclick="doAddProjectTask(${eventArg(project.id)})">+ Add</button>
                 </div>
                 <div class="task-list" data-project-id="${escH(project.id)}">
                   ${project.tasks.length === 0
-                    ? `<div class="empty" style="padding:16px 0;"><div class="empty-icon">✅</div><div class="empty-txt">No project tasks yet.</div></div>`
+                    ? `<div class="empty" style="padding:16px 0;"><div class="empty-txt">No project tasks yet.</div></div>`
                     : taskItems}
                 </div>
               </div>
@@ -2732,9 +2736,9 @@ async function projectTaskHTML(projectId, task) {
   var totalSubs = subtasks.length;
   var fractionText = totalSubs > 0 ? '<span class="task-fraction" style="font-size:11px;color:var(--text-secondary);font-weight:600;margin-left:5px;">(' + doneSubs + '/' + totalSubs + ')</span>' : '';
   var isFormOpen = activeProjectSubForms[`${projectId}:${task.id}`];
-  const decryptedTitle = await Auth.decryptField(task.title, "🔒 [Locked Task]");
+  const decryptedTitle = await Auth.decryptField(task.title, "[Locked Task]");
   var subItems = await Promise.all(subtasks.map(async function(subtask){
-    const decSubTitle = await Auth.decryptField(subtask.title, "🔒 [Locked Subtask]");
+    const decSubTitle = await Auth.decryptField(subtask.title, "[Locked Subtask]");
     return '<div class="subtask-item ' + (subtask.done ? 'done' : '') + '" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="proj-sti-' + escH(subtask.id) + '" draggable="true" data-type="project-subtask" data-project-id="' + escH(projectId) + '" data-parent-id="' + escH(task.id) + '" data-subtask-id="' + escH(subtask.id) + '">'
       + '<div class="task-cb ' + (subtask.done ? 'checked' : '') + '" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',' + eventArg(subtask.id) + ')">' + (subtask.done ? '&#10003;' : '') + '</div>'
       + '<span class="task-title-txt" style="' + (subtask.done ? 'text-decoration:line-through;color:var(--text-muted);' : '') + ';flex:1;">' + escH(decSubTitle) + '</span>'
@@ -2794,9 +2798,9 @@ async function taskHTML(t){
   var totalSubs=subtasks.length;
   var fractionText=totalSubs>0?'<span class="task-fraction" style="font-size:11px;color:var(--text-secondary);font-weight:600;margin-left:5px;">('+(doneSubs)+'/('+(totalSubs)+')</span>':'' ;
   var isFormOpen=activeSubForms[t.id];
-  const decryptedTitle = await Auth.decryptField(t.title, "🔒 [Locked Task]");
+  const decryptedTitle = await Auth.decryptField(t.title, "[Locked Task]");
   var subItems=await Promise.all(subtasks.map(async function(s){
-    const decSubTitle = await Auth.decryptField(s.title, "🔒 [Locked Subtask]");
+    const decSubTitle = await Auth.decryptField(s.title, "[Locked Subtask]");
     return '<div class="subtask-item '+(s.done?'done':'')+'" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-'+escH(s.id)+'" draggable="true" data-type="subtask" data-subtask-id="'+escH(s.id)+'" data-parent-id="'+escH(t.id)+'">'
       +'<div class="task-cb '+(s.done?'checked':'')+'" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask('+eventArg(t.id)+','+eventArg(s.id)+')">'+( s.done?'&#10003;':'')+'</div>'
       +'<span class="task-title-txt" style="'+(s.done?'text-decoration:line-through;color:var(--text-muted);':'')+';flex:1;">'+escH(decSubTitle)+'</span>'
@@ -2879,7 +2883,7 @@ function reorderSubtasks(parentId, draggedSubId, targetSubId, after) {
 function vHabits(){
   const habits=S.habits(), week=thisWeek();
   const wL=['M','T','W','T','F','S','S'];
-  const delBtnText = isDeleteHabitMode ? '✓ Done' : '🗑️ Delete Habit';
+  const delBtnText = isDeleteHabitMode ? '✓ Done' : '️ Delete Habit';
   const delBtnStyle = isDeleteHabitMode 
     ? 'border-color:var(--danger);color:var(--danger);background:rgba(239,68,68,0.05);' 
     : 'color:var(--text-muted);';
@@ -2906,7 +2910,7 @@ function habitHTML(h,week){
   var done = h.logs.includes(today());
   var streak = S.streak(h);
   var canDelete = !h.isDefault;
-  var streakTxt = streak > 0 ? ('🔥 ' + streak + ' day streak') : '\u25cb No streak yet';
+  var streakTxt = streak > 0 ? ('' + streak + ' day streak') : '\u25cb No streak yet';
   var weekDots = week.map(function(d){
     var on = h.logs.includes(d);
     return '<div class="wd' + (on ? ' on' : '') + '" style="' + (on ? 'background:' + h.color + ';color:' + h.color + ';' : '') + '"></div>';
@@ -2947,7 +2951,7 @@ function doDelHabit(id){
 }
 function doAddHabit(){
   const name=prompt('Habit name:'); if(!name?.trim()) return;
-  const icons=['⭐','🏃','📖','🎵','🧘','🌿','💪','🎯','✍️','🎨'],cols=['#fb923c','#f472b6','#a78bfa','#34d399','#38bdf8','#fbbf24'];
+  const icons=[],cols=['#fb923c','#f472b6','#a78bfa','#34d399','#38bdf8','#fbbf24'];
   const h=S.habits();
   h.push({id:uid(),name:name.trim(),icon:icons[h.length%icons.length],color:cols[h.length%cols.length],logs:[],isDefault:false});
   S.saveHabits(h); refreshView();
@@ -2967,10 +2971,10 @@ function vWater(){
         <div style="text-align:center;">
           <div class="water-big-num">${(ml/1000).toFixed(2)}</div>
           <div class="water-big-unit">Litres</div>
-          <div class="water-goal-note">${ml>=goal?'🎉 Goal reached!':((goal-ml)/1000).toFixed(2)+'L remaining'}</div>
+          <div class="water-goal-note">${ml>=goal?' Goal reached!':((goal-ml)/1000).toFixed(2)+'L remaining'}</div>
         </div>
         ${ring({size:84,sw:9,pct,color:'var(--water)',val:Math.round(pct*100)+'%',unit:'of goal'})}
-        <button class="water-tap" onclick="doAddWater()">💧</button>
+        <button class="water-tap" onclick="doAddWater()"></button>
         <div class="water-tap-label">+250ml per tap</div>
         <div class="water-actions">
           <button class="water-btn-sm water-btn-remove" onclick="doRemoveWater()">−250ml</button>
@@ -3231,7 +3235,7 @@ function cdStartTick() {
 function cdNotify() {
   // Browser notification
   if (Notification.permission === 'granted') {
-    new Notification('Outline — Timer Done', { body: `Your ${Math.round(cdState.duration/60)} minute session is complete.`, icon: '⏱' });
+    new Notification('Outline — Timer Done', { body: `Your ${Math.round(cdState.duration/60)} minute session is complete.`, icon: '' });
   }
   // Audio beep using Web Audio API
   try {
@@ -3280,7 +3284,7 @@ function vSleep(){
           <div>
             <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700;letter-spacing:0.6px;">7-Night Average</div>
             <div style="font-size:22px;font-weight:700;color:var(--sleep);margin-top:4px;">${fmtDuration(avg7m)}</div>
-            <div style="font-size:12px;color:var(--text-secondary);margin-top:5px;">${avg7m>=420?'✅ Meeting 7h goal':`⚠️ ${fmtDuration(420-avg7m)} short`}</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:5px;">${avg7m>=420?'Meeting 7h goal':`${fmtDuration(420-avg7m)} short`}</div>
           </div>
         </div></div>
       </div>
@@ -3371,30 +3375,30 @@ async function vJournal() {
   const entry = map[d] || { mood: '', energy: '', focus: '', physical: '', text: '' };
   
   const moodOptions = [
-    { value: 'Great', emoji: '😊' },
-    { value: 'Good', emoji: '🙂' },
-    { value: 'Okay', emoji: '😐' },
-    { value: 'Bad', emoji: '😔' },
-    { value: 'Stressed', emoji: '😰' }
+    { value: 'Great', emoji: '' },
+    { value: 'Good', emoji: '' },
+    { value: 'Okay', emoji: '' },
+    { value: 'Bad', emoji: '' },
+    { value: 'Stressed', emoji: '' }
   ];
   
   const energyOptions = [
-    { value: 'High', emoji: '⚡' },
-    { value: 'Medium', emoji: '🔋' },
-    { value: 'Low', emoji: '💤' }
+    { value: 'High', emoji: '' },
+    { value: 'Medium', emoji: '' },
+    { value: 'Low', emoji: '' }
   ];
 
   const focusOptions = [
-    { value: 'Flow', emoji: '🌊' },
-    { value: 'Focused', emoji: '🎯' },
-    { value: 'Distracted', emoji: '🌀' }
+    { value: 'Flow', emoji: '' },
+    { value: 'Focused'},
+    { value: 'Distracted', emoji: '' }
   ];
 
   const physicalOptions = [
-    { value: 'Energetic', emoji: '💪' },
-    { value: 'Okay', emoji: '🔋' },
-    { value: 'Tired', emoji: '🥱' },
-    { value: 'Sick', emoji: '🤒' }
+    { value: 'Energetic'},
+    { value: 'Okay', emoji: '' },
+    { value: 'Tired', emoji: '' },
+    { value: 'Sick', emoji: '' }
   ];
 
   const makeCapsules = (options, currentVal, metricName) => {
@@ -3558,9 +3562,9 @@ function ideaCardHTML(i) {
 async function vIdeas() {
   const ideas = await S.ideasAsync();
   const columns = [
-    { id: 'inbox',    title: 'Inbox',    emoji: '📥', list: ideas.filter(i => i.column === 'inbox') },
-    { id: 'refining', title: 'Refining', emoji: '⚙️', list: ideas.filter(i => i.column === 'refining') },
-    { id: 'archived', title: 'Archived', emoji: '📁', list: ideas.filter(i => i.column === 'archived') }
+    { id: 'inbox',    title: 'Inbox',    emoji: '', list: ideas.filter(i => i.column === 'inbox') },
+    { id: 'refining', title: 'Refining', emoji: '', list: ideas.filter(i => i.column === 'refining') },
+    { id: 'archived', title: 'Archived', emoji: '', list: ideas.filter(i => i.column === 'archived') }
   ];
 
   return `<div class="view-enter">
@@ -3667,9 +3671,9 @@ function vLockScreen(section) {
             </button>
           </div>
           <div class="lock-error" id="lock-err"></div>
-          <button class="lock-btn" onclick="doSetPassword('${section}')">🔒 Set Password &amp; Unlock</button>
+          <button class="lock-btn" onclick="doSetPassword('${section}')">Set Password &amp; Unlock</button>
         </div>
-        <p class="lock-hint">⚠️ If you forget your password, your Journal &amp; Ideas data cannot be recovered.</p>
+        <p class="lock-hint">If you forget your password, your Journal &amp; Ideas data cannot be recovered.</p>
       ` : `
         <div class="lock-input-wrap" style="width:100%">
           <input class="lock-input" type="password" id="lock-pw1" placeholder="Enter password…" autocomplete="current-password"
@@ -3754,12 +3758,12 @@ function setWealthSubTab(tab) {
 async function vWealth() {
   const data = S.wealth();
   const accounts = await Promise.all((data.accounts || []).map(async a => {
-    const name = await Auth.decryptField(a.name, "🔒 [Locked Account]");
+    const name = await Auth.decryptField(a.name, "[Locked Account]");
     return { ...a, decryptedName: name };
   }));
 
   const transactions = await Promise.all((data.transactions || []).map(async t => {
-    const note = await Auth.decryptField(t.note, "🔒 [Locked Note]");
+    const note = await Auth.decryptField(t.note, "[Locked Note]");
     return { ...t, decryptedNote: note };
   }));
 
@@ -3778,10 +3782,10 @@ async function vWealth() {
 
   const tabsHTML = `
     <div class="wealth-nav-tabs">
-      <button class="wealth-tab ${wealthActiveTab === 'overview' ? 'active' : ''}" onclick="setWealthSubTab('overview')">📊 Overview</button>
-      <button class="wealth-tab ${wealthActiveTab === 'transactions' ? 'active' : ''}" onclick="setWealthSubTab('transactions')">💳 Transactions (${transactions.length})</button>
-      <button class="wealth-tab ${wealthActiveTab === 'accounts' ? 'active' : ''}" onclick="setWealthSubTab('accounts')">🏦 Accounts (${accounts.length})</button>
-      <button class="wealth-tab ${wealthActiveTab === 'budgets' ? 'active' : ''}" onclick="setWealthSubTab('budgets')">🎯 Budgets</button>
+      <button class="wealth-tab ${wealthActiveTab === 'overview' ? 'active' : ''}" onclick="setWealthSubTab('overview')"> Overview</button>
+      <button class="wealth-tab ${wealthActiveTab === 'transactions' ? 'active' : ''}" onclick="setWealthSubTab('transactions')">Transactions (${transactions.length})</button>
+      <button class="wealth-tab ${wealthActiveTab === 'accounts' ? 'active' : ''}" onclick="setWealthSubTab('accounts')">Accounts (${accounts.length})</button>
+      <button class="wealth-tab ${wealthActiveTab === 'budgets' ? 'active' : ''}" onclick="setWealthSubTab('budgets')">Budgets</button>
     </div>
   `;
 
@@ -3823,7 +3827,7 @@ async function vWealth() {
           <div class="card">
             <div class="sec-label">Recent Activity</div>
             ${recentTxns.length === 0 ? `
-              <div class="empty"><div class="empty-icon">💸</div><div class="empty-txt">No transactions logged yet.</div></div>
+              <div class="empty"><div class="empty-txt">No transactions logged yet.</div></div>
             ` : `
               <div class="wealth-txn-list">
                 ${recentTxns.map(t => {
@@ -3886,9 +3890,9 @@ async function vWealth() {
         ` : `
           <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:10px;align-items:center;">
             <select id="wtxn-type" class="input" onchange="updateWealthCatOptions()">
-              <option value="expense" selected>🔴 Expense</option>
-              <option value="income">🟢 Income</option>
-              <option value="transfer">🔄 Transfer</option>
+              <option value="expense" selected>Expense</option>
+              <option value="income">Income</option>
+              <option value="transfer"> Transfer</option>
             </select>
 
             <select id="wtxn-acct" class="input">
@@ -3918,7 +3922,7 @@ async function vWealth() {
       <div class="card">
         <div class="sec-label">All Transactions</div>
         ${sortedTxns.length === 0 ? `
-          <div class="empty"><div class="empty-icon">💳</div><div class="empty-txt">No transactions logged yet.</div></div>
+          <div class="empty"><div class="empty-txt">No transactions logged yet.</div></div>
         ` : `
           <div class="wealth-txn-list">
             ${sortedTxns.map(t => {
@@ -3959,10 +3963,10 @@ async function vWealth() {
           <input type="text" id="wacc-name" class="input" placeholder="Account name (e.g. HDFC Bank)">
 
           <select id="wacc-type" class="input">
-            <option value="bank" selected>🏦 Bank Account</option>
-            <option value="cash">💵 Cash / Wallet</option>
-            <option value="credit">💳 Credit Card</option>
-            <option value="investment">📈 Investment</option>
+            <option value="bank" selected>Bank Account</option>
+            <option value="cash"> Cash / Wallet</option>
+            <option value="credit">Credit Card</option>
+            <option value="investment">Investment</option>
           </select>
 
           <input type="number" id="wacc-bal" class="input" placeholder="Initial Balance (₹)" step="0.01">
@@ -3980,7 +3984,7 @@ async function vWealth() {
 
       <div class="wealth-acct-grid">
         ${accounts.length === 0 ? `
-          <div class="card" style="grid-column:1/-1;"><div class="empty"><div class="empty-icon">🏦</div><div class="empty-txt">No accounts created yet. Add your bank, cash, or investment accounts above.</div></div></div>
+          <div class="card" style="grid-column:1/-1;"><div class="empty"><div class="empty-txt">No accounts created yet. Add your bank, cash, or investment accounts above.</div></div></div>
         ` : `
           ${accounts.map(a => `
             <div class="wealth-acct-card">
@@ -4005,7 +4009,7 @@ async function vWealth() {
   } else if (wealthActiveTab === 'budgets') {
     contentHTML = `
       <div class="card" style="margin-bottom:20px;">
-        <div class="sec-label">🎯 Set / Update Monthly Category Budget</div>
+        <div class="sec-label">Set / Update Monthly Category Budget</div>
         <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:center;">
           <select id="wbud-cat" class="input">
             ${categories.expense.map(c => `<option value="${escH(c)}">${getCategoryEmoji(c)} ${escH(c)}</option>`).join('')}
@@ -4056,7 +4060,7 @@ async function vWealth() {
   return `
     <div class="view-enter">
       <div class="page-header">
-        <h1 class="page-title">Wealth Management 💰</h1>
+        <h1 class="page-title">Wealth Management </h1>
         <p class="page-sub">Track accounts, monitor income &amp; expenses, and manage monthly budgets offline.</p>
       </div>
 
@@ -4078,7 +4082,7 @@ function updateWealthCatOptions() {
   const categories = data.categories || getDefaultWealthCategories();
 
   if (type === 'transfer') {
-    catEl.innerHTML = '<option value="Transfer">🔄 Transfer</option>';
+    catEl.innerHTML = '<option value="Transfer"> Transfer</option>';
     catEl.disabled = true;
   } else {
     const list = type === 'income' ? categories.income : categories.expense;
