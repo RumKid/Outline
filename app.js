@@ -675,6 +675,7 @@ const DM = {
   async pick() {
     try {
       const h = await window.showDirectoryPicker({ mode: 'readwrite' });
+      if (!(await this.prepareForFolderSwitch())) return false;
       this.dirHandle = h;
       await this.storeHandle(h);
       this.fallback = false;
@@ -683,6 +684,31 @@ const DM = {
       if (e.name !== 'AbortError') console.error('pick:', e);
       return false;
     }
+  },
+
+  // Finish writes against the current folder before changing its handle.
+  // Otherwise an in-flight write can continue against the newly selected
+  // folder, or a delayed write can leave the app stuck in a pending state.
+  async prepareForFolderSwitch() {
+    const hadPendingData = this.savePending || this.saveInFlight;
+    const hadPendingJournal = this.journalSavePending || this.journalSaveInFlight;
+    const [dataResult, journalResult] = await Promise.all([
+      hadPendingData ? this.flush() : true,
+      hadPendingJournal ? this.flushJournal() : true
+    ]);
+    if (dataResult === false || journalResult === false) return false;
+
+    clearTimeout(this.saveTimer);
+    clearTimeout(this.saveRetryTimer);
+    clearTimeout(this.saveJournalTimer);
+    clearTimeout(this.journalRetryTimer);
+    this.saveTimer = null;
+    this.saveRetryTimer = null;
+    this.saveJournalTimer = null;
+    this.journalRetryTimer = null;
+    this.savePending = false;
+    this.journalSavePending = false;
+    return !this.saveInFlight && !this.journalSaveInFlight;
   },
 
   // ── Read data from file ───────────────────────────────────────
@@ -1040,6 +1066,7 @@ const DM = {
         }
       }
     }
+    return existing;
   },
 
   // ── Load data into localStorage ───────────────────────────────
@@ -1050,7 +1077,7 @@ const DM = {
       localStorage.setItem('pvp_private_vault', JSON.stringify(data.privateVault));
       return;
     }
-    if (data.tasks)          S.s('pvp_tasks',           data.tasks);
+    if (data.tasks)          S.sSilent('pvp_tasks',           data.tasks);
     if (data.habits) {
       const defaults = ['Workout', 'Read', 'Study', 'Journal'];
       const migrated = data.habits.map(h => {
@@ -1059,16 +1086,16 @@ const DM = {
         }
         return h;
       });
-      S.s('pvp_habits', migrated);
+      S.sSilent('pvp_habits', migrated);
     }
-    if (data.water)          S.s('pvp_water',           data.water);
-    if (data.sessions)       S.s('pvp_sessions',        data.sessions);
-    if (data.active)         S.s('pvp_active',          data.active);
-    if (data.sleep)          S.s('pvp_sleep',           data.sleep);
-    if (data.intentions)     S.s('pvp_intentions',      data.intentions);
-    if (data.dailySummaries) S.s('pvp_daily_summaries', data.dailySummaries);
-    if (data.wealth)         S.s('pvp_wealth',          data.wealth);
-    if (data.projects)       S.s('pvp_projects',        data.projects);
+    if (data.water)          S.sSilent('pvp_water',           data.water);
+    if (data.sessions)       S.sSilent('pvp_sessions',        data.sessions);
+    if (data.active)         S.sSilent('pvp_active',          data.active);
+    if (data.sleep)          S.sSilent('pvp_sleep',           data.sleep);
+    if (data.intentions)     S.sSilent('pvp_intentions',      data.intentions);
+    if (data.dailySummaries) S.sSilent('pvp_daily_summaries', data.dailySummaries);
+    if (data.wealth)         S.sSilent('pvp_wealth',          data.wealth);
+    if (data.projects)       S.sSilent('pvp_projects',        data.projects);
     // ideas may be an encrypted blob — store raw, don't decrypt here
     if (data.ideas !== undefined) {
       localStorage.setItem('pvp_ideas', JSON.stringify(data.ideas));
@@ -1179,8 +1206,7 @@ async function restorePermission() {
 
 async function finishSetup(isChange) {
   // Try to load existing data from the chosen folder
-  await DM.loadAll();
-  const existing = await DM.load();
+  const existing = await DM.loadAll();
   if (!existing) {
     // First time — save current (possibly empty) data
     await DM._doSave();

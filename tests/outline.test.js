@@ -332,6 +332,35 @@ test('durable saves flush pending data and retry transient write failures', asyn
   assert.ok(directory.files.has('outline-journal.json'));
 });
 
+test('switching folders flushes the old folder and saves later changes to the new folder', async () => {
+  const data = (title) => JSON.stringify({
+    schemaVersion: 1,
+    tasks: [{ id: 'folder-task', title, date: '2099-01-01', done: false, subtasks: [] }],
+    habits: [], water: {}, sessions: [], active: null, sleep: {}, intentions: {},
+    dailySummaries: {}, wealth: { accounts: [], transactions: [], budgets: {}, categories: {} },
+    projects: [], ideas: [], savedAt: new Date().toISOString()
+  });
+  const folderA = createDirectory({ 'outline-data.json': data('Folder A') });
+  const folderB = createDirectory({ 'outline-data.json': data('Folder B') });
+  const app = loadApp();
+  app.DM.dirHandle = folderA;
+
+  await app.DM.loadAll();
+  assert.equal(app.DM.savePending, false, 'loading must not schedule a save');
+  app.S.s('pvp_tasks', [{ id: 'folder-task', title: 'Changed in A', date: '2099-01-01', done: false, subtasks: [] }]);
+
+  assert.equal(await app.DM.prepareForFolderSwitch(), true);
+  app.DM.dirHandle = folderB;
+  await app.DM.loadAll();
+  assert.equal(app.S.tasks()[0].title, 'Folder B');
+  assert.equal(app.DM.savePending, false, 'loading folder B must not save into it');
+  assert.equal(JSON.parse(folderA.files.get('outline-data.json')).tasks[0].title, 'Changed in A');
+
+  app.S.s('pvp_tasks', [{ id: 'folder-task', title: 'Changed in B', date: '2099-01-01', done: false, subtasks: [] }]);
+  assert.equal(await app.DM.flush(), true);
+  assert.equal(JSON.parse(folderB.files.get('outline-data.json')).tasks[0].title, 'Changed in B');
+});
+
 test('journal edits are persisted immediately and survive a reload during a pending write', async () => {
   const directory = createDirectory({
     'outline-journal.json': JSON.stringify({ '2026-08-26': { text: 'Old text' } })
