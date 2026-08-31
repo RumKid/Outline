@@ -2589,10 +2589,19 @@ async function vWeekTasks() {
 
 /* ── PROJECTS ── */
 let projectViewMode = 'board';
+let projectBoardFilter = 'all';
 const projectStatusLabels = { backlog: 'Backlog', todo: 'To Do', 'in-progress': 'In Progress', done: 'Done' };
-function setProjectViewMode(mode) { projectViewMode = ['list', 'ideas'].includes(mode) ? mode : 'board'; refreshView(); }
+function setProjectViewMode(mode) {
+  projectViewMode = ['list', 'ideas'].includes(mode) ? mode : 'board';
+  if (curView === 'ideas') curView = 'projects';
+  refreshView();
+}
 function projectViewModeButtons() {
   return `<div class="project-view-toggle"><button class="btn ${projectViewMode === 'board' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('board')">Board</button><button class="btn ${projectViewMode === 'list' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('list')">Projects</button><button class="btn ${projectViewMode === 'ideas' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('ideas')">Ideas</button></div>`;
+}
+function setProjectBoardFilter(projectId) {
+  projectBoardFilter = projectId || 'all';
+  refreshView();
 }
 function doSetProjectTaskStatus(projectId, taskId, status) { S.setProjectTaskStatus(projectId, taskId, status); refreshView(); }
 async function vProjects() {
@@ -2618,8 +2627,11 @@ async function vProjects() {
         };
       })
   );
+  if (projectBoardFilter !== 'all' && !projects.some(project => project.id === projectBoardFilter)) {
+    projectBoardFilter = 'all';
+  }
 
-  const boardTasks = await Promise.all(
+  const allBoardTasks = await Promise.all(
     projects.flatMap(project => project.tasks.map(async task => ({
       ...task,
       projectId: project.id,
@@ -2630,6 +2642,9 @@ async function vProjects() {
       })))
     })))
   );
+  const boardTasks = projectBoardFilter === 'all'
+    ? allBoardTasks
+    : allBoardTasks.filter(task => task.projectId === projectBoardFilter);
   const boardHTML = `<div class="project-board">
     ${Object.entries(projectStatusLabels).map(([status, label]) => {
       const columnTasks = boardTasks.filter(task => task.status === status);
@@ -2690,7 +2705,10 @@ async function vProjects() {
         <div class="sec-label" style="margin-bottom:3px;">Project workspace</div>
         <div class="project-toolbar-sub">Move personal work from backlog to done.</div>
       </div>
-      ${projectViewModeButtons()}
+      <div class="project-toolbar-controls">
+        ${projectViewMode === 'board' ? `<label class="project-board-filter">Filter <select class="project-filter-select" onchange="setProjectBoardFilter(this.value)" aria-label="Filter board by project"><option value="all"${projectBoardFilter === 'all' ? ' selected' : ''}>All Projects</option>${projects.map(project => `<option value="${escH(project.id)}"${project.id === projectBoardFilter ? ' selected' : ''}>${escH(project.decryptedTitle)}</option>`).join('')}</select></label>` : ''}
+        ${projectViewModeButtons()}
+      </div>
     </div>
 
     ${projectViewMode === 'board' ? boardHTML : projects.length === 0 ? `
