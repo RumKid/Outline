@@ -4,6 +4,35 @@
 const $ = id => document.getElementById(id);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 const DATA_SCHEMA_VERSION = 1;
+const OUTLINE_ICON_PATHS = {
+  dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  tasks: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="m8 12 2.5 2.5L16 9"/>',
+  habits: '<path d="M12 21V10"/><path d="M12 14c-4 0-6-2.5-6-6 4 0 6 2.5 6 6Z"/><path d="M12 11c0-4 2.5-6 6-6 0 4-2.5 6-6 6Z"/>',
+  water: '<path d="M12 3.5S5.5 10.6 5.5 15.1a6.5 6.5 0 0 0 13 0C18.5 10.6 12 3.5 12 3.5Z"/>',
+  study: '<path d="m3 5.5 9-2 9 2v13l-9 2-9-2v-13Z"/><path d="M12 3.5v17"/><path d="m6 8 3.5-.8M15 7.2 18 8"/>',
+  sleep: '<path d="M19.5 15.5A7.5 7.5 0 0 1 8.5 4.5 8.5 8.5 0 1 0 19.5 15.5Z"/>',
+  journal: '<path d="m4 20 3.5-.8L19 7.7a2.1 2.1 0 0 0-3-3L4.5 16.2 4 20Z"/><path d="m14.5 6.5 3 3"/>',
+  projects: '<path d="M3 7.5h7l2 2H21v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-11.5Z"/><path d="M3 7.5V5a2 2 0 0 1 2-2h4l2 2h3"/>',
+  ideas: '<path d="M9 18h6M10 21h4"/><path d="M8.3 14.5a7 7 0 1 1 7.4 0c-.9.6-1.7 1.4-1.7 2.5h-4c0-1.1-.8-1.9-1.7-2.5Z"/>',
+  wealth: '<path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/><path d="m3 6 6-3 6 4 7-4"/>',
+  settings: '<path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="11" cy="17" r="2"/>',
+  clipboard: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5V3h6v1.5M8.5 10h7M8.5 14h5"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5M9 3h6"/>',
+  receipt: '<path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3Z"/><path d="M8 8h8M8 12h6"/>',
+  bank: '<path d="m3 9 9-5 9 5M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 20h18"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  activity: '<path d="M3 12h4l2-6 4 12 2-6h6"/>'
+};
+function iconSvg(name, className = '') {
+  const path = OUTLINE_ICON_PATHS[name] || OUTLINE_ICON_PATHS.activity;
+  return `<svg class="outline-icon${className ? ` ${className}` : ''}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${path}</svg>`;
+}
+function hydrateIcons() {
+  document.querySelectorAll('[data-icon]').forEach(el => {
+    el.innerHTML = iconSvg(el.dataset.icon);
+  });
+}
 function dateKey(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -2271,8 +2300,18 @@ function fmtCurrencyCompact(val, currency = '₹') {
   if (Math.abs(num) >= 1000) return currency + (num / 1000).toFixed(1) + 'K';
   return currency + num.toFixed(0);
 }
-function getCategoryEmoji(cat) {
-  return '';
+function getCategoryIcon(cat) {
+  const icons = {
+    Food: 'receipt', Transport: 'activity', Shopping: 'projects', Bills: 'receipt',
+    Entertainment: 'ideas', Health: 'activity', Education: 'study',
+    Subscriptions: 'timer', Salary: 'wealth', Freelance: 'journal',
+    Investments: 'wealth', Gift: 'ideas', Other: 'activity'
+  };
+  return iconSvg(icons[cat] || 'activity');
+}
+
+function emptyState(icon, message, action = '') {
+  return `<div class="empty" data-empty-state="true"><div class="empty-icon">${iconSvg(icon)}</div><div class="empty-txt">${message}</div>${action}</div>`;
 }
 
 async function vDashboard(){
@@ -2315,7 +2354,7 @@ async function vDashboard(){
           <div class="dash-label">Tasks</div>
           <div class="dash-value">${doneTasks}<span style="font-family:inherit;font-size:16px;color:var(--text-muted);font-weight:500;">/${todayTasks.length}</span></div>
           <div class="dash-sub">${todayTasks.length===0?'No tasks yet':`${Math.round(taskPct*100)}% done`}</div>
-        </div><div class="dash-icon"></div></div>
+        </div><div class="dash-icon">${iconSvg('tasks')}</div></div>
         <div class="pbar-wrap"><div class="pbar-fill" style="width:${taskPct*100}%;background:#ffffff;"></div></div>
       </div></div>
 
@@ -2324,7 +2363,7 @@ async function vDashboard(){
           <div class="dash-label">Water</div>
           <div class="dash-value">${(waterMl/1000).toFixed(1)}<span style="font-family:inherit;font-size:14px;color:var(--text-muted);font-weight:500;">L</span></div>
           <div class="dash-sub">of 3.5L goal</div>
-        </div><div class="dash-icon"></div></div>
+        </div><div class="dash-icon">${iconSvg('water')}</div></div>
         <div class="pbar-wrap"><div class="pbar-fill" style="width:${waterPct*100}%;background:#ffffff;"></div></div>
         <button class="water-tap-btn" onclick="event.stopPropagation();dashAddWater()" title="+250ml">+</button>
       </div></div>
@@ -2334,7 +2373,7 @@ async function vDashboard(){
           <div class="dash-label">Habits</div>
           <div class="dash-value">${doneH}<span style="font-family:inherit;font-size:16px;color:var(--text-muted);font-weight:500;">/${habits.length}</span></div>
           <div class="dash-sub">${Math.round(habitPct*100)}% today</div>
-        </div><div class="dash-icon"></div></div>
+        </div><div class="dash-icon">${iconSvg('habits')}</div></div>
         <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:2px;">
           ${habits.map(h=>`<div title="${escH(h.name)}" style="width:9px;height:9px;border-radius:2.5px;transition:0.2s;background:${h.logs.includes(today())?'#ffffff':'var(--border-default)'};"></div>`).join('')}
         </div>
@@ -2345,7 +2384,7 @@ async function vDashboard(){
           <div class="dash-label">Study</div>
           <div class="dash-value">${fmtDuration(studyMins)}</div>
           <div class="dash-sub">studied today</div>
-        </div><div class="dash-icon"></div></div>
+        </div><div class="dash-icon">${iconSvg('study')}</div></div>
         ${S.activeSession()?`<div style="font-size:11px;color:var(--text-primary);background:var(--bg-elevated);border:1px solid var(--border-default);padding:3px 10px;border-radius:20px;display:inline-block;margin-top:4px;">● Session active</div>`:''}
       </div></div>
 
@@ -2354,7 +2393,7 @@ async function vDashboard(){
           <div class="dash-label">Sleep</div>
           <div class="dash-value">${sl?fmtDuration(slMins):'—'}</div>
           <div class="dash-sub">${sl?`${sl.bed} → ${sl.wake}`:'Not logged yet'}</div>
-        </div><div class="dash-icon"></div></div>
+        </div><div class="dash-icon">${iconSvg('sleep')}</div></div>
         ${sl?`<div style="display:flex;align-items:center;gap:7px;margin-top:4px;">
           <div style="flex:1;height:4px;background:var(--border-default);border-radius:2px;overflow:hidden;">
             <div style="width:${clamp(slMins/480*100,0,100)}%;height:100%;background:#ffffff;border-radius:2px;transition:0.6s;"></div>
@@ -2368,7 +2407,7 @@ async function vDashboard(){
           <div class="dash-label">Wealth</div>
           <div class="dash-value">${fmtCurrencyCompact(netWorth)}</div>
           <div class="dash-sub">${thisMonthExpenses > 0 ? fmtCurrencyCompact(thisMonthExpenses) + ' spent this month' : 'Net Worth'}</div>
-        </div><div class="dash-icon"></div></div>
+        </div><div class="dash-icon">${iconSvg('wealth')}</div></div>
         <div style="font-size:11px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
           <span>${wealthData.accounts.length} Account${wealthData.accounts.length !== 1 ? 's' : ''}</span>
           <span style="color:var(--text-primary);font-weight:600;">Manage →</span>
@@ -2458,7 +2497,7 @@ async function vTasks(){
         </div>
         <div class="task-list">
           ${todayTasks.length===0
-            ?`<div class="empty"><div class="empty-txt">No tasks yet. Add something above.</div></div>`
+            ?emptyState('clipboard', 'No tasks yet. Add something above.')
             :taskItemsHTML}
         </div>
         ${todayTasks.length>0?`
@@ -2506,7 +2545,7 @@ async function vWeekTasks() {
         <div><div style="font-family:'Outfit',sans-serif;font-size:15px;font-weight:700;">${dayName}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${fmtDate(date)}${isToday ? ' · Today' : ''}</div></div>
         <span style="margin-left:auto;font-size:11px;color:${dayDone === dayTasks.length && dayTasks.length > 0 ? 'var(--success)' : 'var(--text-muted)'};font-weight:700;">${dayDone}/${dayTasks.length}</span>
       </div>
-      <div class="week-day-tasks">${items || '<div class="week-empty">No tasks</div>'}</div>
+      <div class="week-day-tasks">${items || `<div class="week-empty">${iconSvg('calendar')}<br>No tasks</div>`}</div>
     </section>`;
   }));
 
@@ -2569,7 +2608,7 @@ async function vProjects() {
       return `<section class="project-board-column" data-project-status="${status}">
         <div class="project-board-column-head"><span>${label}</span><strong>${columnTasks.length}</strong></div>
         <div class="project-board-items">
-          ${columnTasks.length === 0 ? '<div class="project-board-empty">No tasks</div>' : columnTasks.map(task => {
+          ${columnTasks.length === 0 ? `<div class="project-board-empty">${iconSvg('clipboard')}<br>No tasks</div>` : columnTasks.map(task => {
             const subs = task.decryptedSubtasks || [];
             const doneSubs = subs.filter(s => s.done).length;
             const totalSubs = subs.length;
@@ -2631,7 +2670,7 @@ async function vProjects() {
 
     ${projectViewMode === 'board' ? boardHTML : projects.length === 0 ? `
       <div class="card">
-        <div class="empty"><div class="empty-txt">No active projects yet. Add the first one above.</div></div>
+        ${emptyState('projects', 'No active projects yet. Add the first one above.')}
       </div>
     ` : `
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:16px;align-items:start;">
@@ -2665,7 +2704,7 @@ async function vProjects() {
                 </div>
                 <div class="task-list" data-project-id="${escH(project.id)}">
                   ${project.tasks.length === 0
-                    ? `<div class="empty" style="padding:16px 0;"><div class="empty-txt">No project tasks yet.</div></div>`
+                    ? emptyState('clipboard', 'No project tasks yet.')
                     : taskItems}
                 </div>
               </div>
@@ -2951,6 +2990,8 @@ function habitHTML(h,week){
   var done = h.logs.includes(today());
   var streak = S.streak(h);
   var streakTxt = streak > 0 ? ('' + streak + ' day streak') : '\u25cb No streak yet';
+  var habitIcons = { Workout: 'activity', Read: 'journal', Study: 'study', Journal: 'journal' };
+  var habitIcon = habitIcons[h.name] || 'habits';
   var weekDots = week.map(function(d){
     var on = h.logs.includes(d);
     return '<div class="wd' + (on ? ' on' : '') + '" style="' + (on ? 'background:' + h.color + ';color:' + h.color + ';' : '') + '"></div>';
@@ -2968,7 +3009,7 @@ function habitHTML(h,week){
   }
 
   return '<div class="habit-row">'
-    + '<div class="habit-icon-wrap" style="background:' + escH(h.color) + '22;">' + escH(h.icon) + '</div>'
+    + '<div class="habit-icon-wrap" style="background:' + escH(h.color) + '22;">' + iconSvg(habitIcon) + '</div>'
     + '<div class="habit-info">'
       + '<div class="habit-name-txt">' + escH(h.name) + '</div>'
       + '<div class="habit-streak-txt">' + streakTxt + '</div>'
@@ -3018,7 +3059,7 @@ function vWater(){
           <div class="water-goal-note">${ml>=goal?' Goal reached!':((goal-ml)/1000).toFixed(2)+'L remaining'}</div>
         </div>
         ${ring({size:84,sw:9,pct,color:'var(--water)',val:Math.round(pct*100)+'%',unit:'of goal'})}
-        <button class="water-tap" onclick="doAddWater()"></button>
+        <button class="water-tap" onclick="doAddWater()" aria-label="Add 250 milliliters of water">${iconSvg('water')}</button>
         <div class="water-tap-label">+250ml per tap</div>
         <div class="water-actions">
           <button class="water-btn-sm water-btn-remove" onclick="doRemoveWater()">−250ml</button>
@@ -3100,7 +3141,7 @@ function vStudy(){
         </div>
         ${(() => {
           const todaySess = ss.filter(x => x.date === today()).sort((a,b) => new Date(b.start)-new Date(a.start));
-          if (todaySess.length === 0) return `<div style="text-align:center;padding:18px 0;color:var(--text-muted);font-size:13px;">No sessions logged today</div>`;
+          if (todaySess.length === 0) return emptyState('timer', 'No sessions logged today');
           return `<div class="session-log">${todaySess.map(x => {
             const startFmt = new Date(x.start).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
             const endFmt   = new Date(x.end).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
@@ -3419,37 +3460,37 @@ async function vJournal() {
   const entry = map[d] || { mood: '', energy: '', focus: '', physical: '', text: '' };
   
   const moodOptions = [
-    { value: 'Great', emoji: '' },
-    { value: 'Good', emoji: '' },
-    { value: 'Okay', emoji: '' },
-    { value: 'Bad', emoji: '' },
-    { value: 'Stressed', emoji: '' }
+    { value: 'Great', icon: 'activity' },
+    { value: 'Good', icon: 'ideas' },
+    { value: 'Okay', icon: 'dashboard' },
+    { value: 'Bad', icon: 'sleep' },
+    { value: 'Stressed', icon: 'settings' }
   ];
   
   const energyOptions = [
-    { value: 'High', emoji: '' },
-    { value: 'Medium', emoji: '' },
-    { value: 'Low', emoji: '' }
+    { value: 'High', icon: 'activity' },
+    { value: 'Medium', icon: 'dashboard' },
+    { value: 'Low', icon: 'sleep' }
   ];
 
   const focusOptions = [
-    { value: 'Flow', emoji: '' },
-    { value: 'Focused'},
-    { value: 'Distracted', emoji: '' }
+    { value: 'Flow', icon: 'activity' },
+    { value: 'Focused', icon: 'study' },
+    { value: 'Distracted', icon: 'settings' }
   ];
 
   const physicalOptions = [
-    { value: 'Energetic'},
-    { value: 'Okay', emoji: '' },
-    { value: 'Tired', emoji: '' },
-    { value: 'Sick', emoji: '' }
+    { value: 'Energetic', icon: 'activity' },
+    { value: 'Okay', icon: 'dashboard' },
+    { value: 'Tired', icon: 'sleep' },
+    { value: 'Sick', icon: 'activity' }
   ];
 
   const makeCapsules = (options, currentVal, metricName) => {
     return options.map(opt => {
       const active = opt.value === currentVal ? ' active' : '';
       return `<div class="j-capsule${active}" onclick="selectJournalOption('${metricName}', '${opt.value}')">
-        <span>${opt.emoji}</span><span>${opt.value}</span>
+        ${iconSvg(opt.icon || 'dashboard')}<span>${opt.value}</span>
       </div>`;
     }).join('');
   };
@@ -3464,7 +3505,7 @@ async function vJournal() {
         <p class="page-sub">Reflect on your day, log your metrics, and capture your thoughts.</p>
       </div>
       <button class="lock-page-btn" onclick="lockAndNavigate('journal')" title="Lock Journal">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        ${iconSvg('lock')}
         Lock
       </button>
     </div>
@@ -3606,9 +3647,9 @@ function ideaCardHTML(i) {
 async function vIdeas() {
   const ideas = await S.ideasAsync();
   const columns = [
-    { id: 'inbox',    title: 'Inbox',    emoji: '', list: ideas.filter(i => i.column === 'inbox') },
-    { id: 'refining', title: 'Refining', emoji: '', list: ideas.filter(i => i.column === 'refining') },
-    { id: 'archived', title: 'Archived', emoji: '', list: ideas.filter(i => i.column === 'archived') }
+    { id: 'inbox',    title: 'Inbox',    icon: 'ideas', list: ideas.filter(i => i.column === 'inbox') },
+    { id: 'refining', title: 'Refining', icon: 'settings', list: ideas.filter(i => i.column === 'refining') },
+    { id: 'archived', title: 'Archived', icon: 'projects', list: ideas.filter(i => i.column === 'archived') }
   ];
 
   return `<div class="view-enter">
@@ -3618,7 +3659,7 @@ async function vIdeas() {
         <p class="page-sub">Brainstorm, refine, and archive your projects and thoughts.</p>
       </div>
       <button class="lock-page-btn" onclick="lockAndNavigate('ideas')" title="Lock Ideas">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        ${iconSvg('lock')}
         Lock
       </button>
     </div>
@@ -3627,7 +3668,7 @@ async function vIdeas() {
       ${columns.map(col => `
         <div class="ideas-column" data-column-id="${col.id}">
           <div class="ideas-column-header">
-            <span class="ideas-column-title">${col.emoji} &nbsp;${col.title}</span>
+            <span class="ideas-column-title">${iconSvg(col.icon)}${col.title}</span>
             <span class="ideas-column-count">${col.list.length}</span>
           </div>
           
@@ -3679,7 +3720,7 @@ function navigate(v){
 function refreshView(){ renderView(curView); }
 
 /* ── LOCK SCREEN ─────────────────────────────────────────────── */
-const LOCK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+const LOCK_SVG = iconSvg('lock');
 
 function lockAndNavigate(view) {
   Auth.lock();
@@ -3873,7 +3914,7 @@ async function vWealth() {
           <div class="card">
             <div class="sec-label">Recent Activity</div>
             ${recentTxns.length === 0 ? `
-              <div class="empty"><div class="empty-txt">No transactions logged yet.</div></div>
+              ${emptyState('receipt', 'No transactions logged yet.')}
             ` : `
               <div class="wealth-txn-list">
                 ${recentTxns.map(t => {
@@ -3887,7 +3928,7 @@ async function vWealth() {
                   return `
                     <div class="wealth-txn-row">
                       <div class="txn-left">
-                        <div class="txn-icon">${getCategoryEmoji(t.category)}</div>
+                        <div class="txn-icon">${getCategoryIcon(t.category)}</div>
                         <div>
                           <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);">${escH(t.decryptedNote || t.category)}</div>
                           <div style="font-size:11.5px;color:var(--text-muted);">${escH(t.date)} · ${escH(accountLabel)}</div>
@@ -3907,7 +3948,7 @@ async function vWealth() {
         <div class="card">
           <div class="sec-label">Accounts Summary</div>
           ${accounts.length === 0 ? `
-            <div class="empty" style="padding:20px;"><div class="empty-txt">No accounts added.</div><button class="btn btn-primary" style="margin-top:10px;" onclick="setWealthSubTab('accounts')">＋ Add Account</button></div>
+            ${emptyState('bank', 'No accounts added.', '<button class="btn btn-primary" style="margin-top:10px;" onclick="setWealthSubTab(\'accounts\')">＋ Add Account</button>')}
           ` : `
             <div style="display:flex;flex-direction:column;gap:10px;">
               ${accounts.map(a => `
@@ -3951,7 +3992,7 @@ async function vWealth() {
             </select>
 
             <select id="wtxn-cat" class="input">
-              ${categories.expense.map(c => `<option value="${escH(c)}">${getCategoryEmoji(c)} ${escH(c)}</option>`).join('')}
+              ${categories.expense.map(c => `<option value="${escH(c)}">${escH(c)}</option>`).join('')}
             </select>
 
             <input type="number" id="wtxn-amt" class="input" placeholder="Amount (₹)" step="0.01" min="0">
@@ -3968,7 +4009,7 @@ async function vWealth() {
       <div class="card">
         <div class="sec-label">All Transactions</div>
         ${sortedTxns.length === 0 ? `
-          <div class="empty"><div class="empty-txt">No transactions logged yet.</div></div>
+          ${emptyState('receipt', 'No transactions logged yet.')}
         ` : `
           <div class="wealth-txn-list">
             ${sortedTxns.map(t => {
@@ -3982,7 +4023,7 @@ async function vWealth() {
               return `
                 <div class="wealth-txn-row">
                   <div class="txn-left">
-                    <div class="txn-icon">${getCategoryEmoji(t.category)}</div>
+                    <div class="txn-icon">${getCategoryIcon(t.category)}</div>
                     <div>
                       <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);">${escH(t.decryptedNote || t.category)}</div>
                           <div style="font-size:11.5px;color:var(--text-muted);">${escH(t.date)} · ${escH(accountLabel)} · <span style="text-transform:capitalize;">${escH(t.type)}</span></div>
@@ -4030,7 +4071,7 @@ async function vWealth() {
 
       <div class="wealth-acct-grid">
         ${accounts.length === 0 ? `
-          <div class="card" style="grid-column:1/-1;"><div class="empty"><div class="empty-txt">No accounts created yet. Add your bank, cash, or investment accounts above.</div></div></div>
+          <div class="card" style="grid-column:1/-1;">${emptyState('bank', 'No accounts created yet. Add your bank, cash, or investment accounts above.')}</div>
         ` : `
           ${accounts.map(a => `
             <div class="wealth-acct-card">
@@ -4058,7 +4099,7 @@ async function vWealth() {
         <div class="sec-label">Set / Update Monthly Category Budget</div>
         <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:center;">
           <select id="wbud-cat" class="input">
-            ${categories.expense.map(c => `<option value="${escH(c)}">${getCategoryEmoji(c)} ${escH(c)}</option>`).join('')}
+            ${categories.expense.map(c => `<option value="${escH(c)}">${escH(c)}</option>`).join('')}
           </select>
           <input type="number" id="wbud-amt" class="input" placeholder="Monthly Limit (₹)" step="100" min="0">
           <button class="btn btn-primary" style="height:38px;" onclick="doSetWealthBudget()">Set Budget</button>
@@ -4078,7 +4119,7 @@ async function vWealth() {
               <div style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:10px;padding:14px 16px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                   <div style="display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:18px;">${getCategoryEmoji(cat)}</span>
+                    <span class="category-icon">${getCategoryIcon(cat)}</span>
                     <span style="font-size:14px;font-weight:600;">${escH(cat)}</span>
                   </div>
                   <div style="font-family:'JetBrains Mono',monospace;font-size:13px;">
@@ -4132,7 +4173,7 @@ function updateWealthCatOptions() {
     catEl.disabled = true;
   } else {
     const list = type === 'income' ? categories.income : categories.expense;
-    catEl.innerHTML = list.map(c => `<option value="${escH(c)}">${getCategoryEmoji(c)} ${escH(c)}</option>`).join('');
+    catEl.innerHTML = list.map(c => `<option value="${escH(c)}">${escH(c)}</option>`).join('');
     catEl.disabled = false;
   }
 
@@ -4494,6 +4535,7 @@ function recoverStaleSession() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  hydrateIcons();
   document.addEventListener('click', event => {
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (!action) {
