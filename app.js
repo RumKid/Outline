@@ -2590,9 +2590,13 @@ async function vWeekTasks() {
 /* ── PROJECTS ── */
 let projectViewMode = 'board';
 const projectStatusLabels = { backlog: 'Backlog', todo: 'To Do', 'in-progress': 'In Progress', done: 'Done' };
-function setProjectViewMode(mode) { projectViewMode = mode === 'list' ? 'list' : 'board'; refreshView(); }
+function setProjectViewMode(mode) { projectViewMode = ['list', 'ideas'].includes(mode) ? mode : 'board'; refreshView(); }
+function projectViewModeButtons() {
+  return `<div class="project-view-toggle"><button class="btn ${projectViewMode === 'board' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('board')">Board</button><button class="btn ${projectViewMode === 'list' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('list')">Projects</button><button class="btn ${projectViewMode === 'ideas' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('ideas')">Ideas</button></div>`;
+}
 function doSetProjectTaskStatus(projectId, taskId, status) { S.setProjectTaskStatus(projectId, taskId, status); refreshView(); }
 async function vProjects() {
+  if (projectViewMode === 'ideas') return vIdeas();
   const projects = await Promise.all(
     (S.projects() || [])
       .filter(project => project.status !== 'done')
@@ -2686,10 +2690,7 @@ async function vProjects() {
         <div class="sec-label" style="margin-bottom:3px;">Project workspace</div>
         <div class="project-toolbar-sub">Move personal work from backlog to done.</div>
       </div>
-      <div class="project-view-toggle">
-        <button class="btn ${projectViewMode === 'board' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('board')">Board</button>
-        <button class="btn ${projectViewMode === 'list' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('list')">Projects</button>
-      </div>
+      ${projectViewModeButtons()}
     </div>
 
     ${projectViewMode === 'board' ? boardHTML : projects.length === 0 ? `
@@ -3682,10 +3683,13 @@ async function vIdeas() {
         <h1 class="page-title">Ideas Board</h1>
         <p class="page-sub">Brainstorm, refine, and archive your projects and thoughts.</p>
       </div>
-      <button class="lock-page-btn" onclick="lockAndNavigate('ideas')" title="Lock Ideas">
-        ${iconSvg('lock')}
-        Lock
-      </button>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        ${projectViewModeButtons()}
+        <button class="lock-page-btn" onclick="lockAndNavigate('projects')" title="Lock Ideas">
+          ${iconSvg('lock')}
+          Lock
+        </button>
+      </div>
     </div>
 
     <div class="ideas-board">
