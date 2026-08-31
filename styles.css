@@ -275,6 +275,9 @@
     .page-header { margin-bottom: 24px; }
     .page-title  { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; color: var(--text-primary); }
     .page-sub    { font-size: 13.5px; color: var(--text-secondary); margin-top: 3px; }
+    .dashboard-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    .dashboard-view-toggle { display:flex; gap:6px; flex-wrap:wrap; }
+    .dashboard-view-toggle .btn { padding:7px 12px; font-size:11px; }
 
     /* ── ANIMATIONS ──────────────────────────────────────────── */
     @keyframes viewIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
@@ -518,6 +521,7 @@
       .nav-icon { width:auto; }
       .nav-ind { top:auto; bottom:0; left:50%; width:22px; height:2px; transform:translateX(-50%) scaleX(.5); }
       .nav-item.active .nav-ind { transform:translateX(-50%) scaleX(1); }
+      .dashboard-header { flex-wrap:wrap; }
       .dash-grid { grid-template-columns:repeat(2,1fr); }
       .tasks-layout,.water-layout,.study-layout,.sleep-layout { grid-template-columns:1fr; }
       .week-task-grid { grid-template-columns:repeat(2,minmax(220px,1fr)); }

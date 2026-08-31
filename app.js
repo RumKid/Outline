@@ -2328,6 +2328,51 @@ function emptyState(icon, message, action = '') {
   return `<div class="empty" data-empty-state="true"><div class="empty-icon">${iconSvg(icon)}</div><div class="empty-txt">${message}</div>${action}</div>`;
 }
 
+let dashboardViewMode = 'overview';
+function setDashboardViewMode(mode) {
+  dashboardViewMode = mode === 'weekly' ? 'weekly' : 'overview';
+  refreshView();
+}
+
+function weeklyReviewHTML(thisStats, lastStats) {
+  return `<div style="margin-top: 28px;">
+    <div class="sec-label">Weekly Review</div>
+    <div class="weekly-card">
+      <div class="weekly-header">
+        <span class="weekly-title">Weekly Performance</span>
+        <span class="weekly-subtitle">This week vs. Last week</span>
+      </div>
+      <div class="weekly-grid">
+        <div class="weekly-col">
+          <div class="weekly-metric-label">Daily Score</div>
+          <div class="weekly-metric-val">${thisStats.scoreAvg}<span class="weekly-metric-unit">/100</span></div>
+          <div class="weekly-metric-compare">${renderTrend(thisStats.scoreAvg, lastStats.scoreAvg)}</div>
+        </div>
+        <div class="weekly-col">
+          <div class="weekly-metric-label">Habits Done</div>
+          <div class="weekly-metric-val">${thisStats.habitPct}<span class="weekly-metric-unit">%</span></div>
+          <div class="weekly-metric-compare">${renderTrend(thisStats.habitPct, lastStats.habitPct, '%')}</div>
+        </div>
+        <div class="weekly-col">
+          <div class="weekly-metric-label">Study Time</div>
+          <div class="weekly-metric-val">${fmtDurationShort(thisStats.studyTotal)}</div>
+          <div class="weekly-metric-compare">${renderTrendStudy(thisStats.studyTotal, lastStats.studyTotal)}</div>
+        </div>
+        <div class="weekly-col">
+          <div class="weekly-metric-label">Sleep Avg</div>
+          <div class="weekly-metric-val">${thisStats.sleepAvg > 0 ? fmtDurationShort(thisStats.sleepAvg) : '—'}</div>
+          <div class="weekly-metric-compare">${renderTrendSleep(thisStats.sleepAvg, lastStats.sleepAvg)}</div>
+        </div>
+        <div class="weekly-col">
+          <div class="weekly-metric-label">Water Avg</div>
+          <div class="weekly-metric-val">${(thisStats.waterAvg / 1000).toFixed(1)}<span class="weekly-metric-unit">L</span></div>
+          <div class="weekly-metric-compare">${renderTrendWater(thisStats.waterAvg, lastStats.waterAvg)}</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
 async function vDashboard(){
   const todayTasks=S.tasks().filter(t=>t.date===today());
   const doneTasks=todayTasks.filter(t=>t.done).length;
@@ -2350,12 +2395,13 @@ async function vDashboard(){
 
   const thisStats = getStatsForDates(thisWeek());
   const lastStats = getStatsForDates(lastWeek());
+  const dashboardHeader = `<div class="page-header dashboard-header"><div><h1 class="page-title">Good ${greeting()} </h1><p class="page-sub">Your personal overview for today.</p></div><div class="dashboard-view-toggle"><button class="btn ${dashboardViewMode === 'overview' ? 'btn-primary' : 'btn-ghost'}" onclick="setDashboardViewMode('overview')">Overview</button><button class="btn ${dashboardViewMode === 'weekly' ? 'btn-primary' : 'btn-ghost'}" onclick="setDashboardViewMode('weekly')">Weekly Review</button></div></div>`;
+  if (dashboardViewMode === 'weekly') {
+    return `<div class="view-enter">${dashboardHeader}${weeklyReviewHTML(thisStats, lastStats)}</div>`;
+  }
 
   return `<div class="view-enter">
-    <div class="page-header">
-      <h1 class="page-title">Good ${greeting()} </h1>
-      <p class="page-sub">Here's your life at a glance.</p>
-    </div>
+    ${dashboardHeader}
 
     <div class="intention-card">
       <div class="intention-label">TODAY'S INTENTION</div>
@@ -2434,42 +2480,6 @@ async function vDashboard(){
       </div></div>
     </div>
 
-    <div style="margin-top: 28px;">
-      <div class="sec-label">Weekly Review</div>
-      <div class="weekly-card">
-        <div class="weekly-header">
-          <span class="weekly-title">Weekly Performance</span>
-          <span class="weekly-subtitle">This week vs. Last week</span>
-        </div>
-        <div class="weekly-grid">
-          <div class="weekly-col">
-            <div class="weekly-metric-label">Daily Score</div>
-            <div class="weekly-metric-val">${thisStats.scoreAvg}<span class="weekly-metric-unit">/100</span></div>
-            <div class="weekly-metric-compare">${renderTrend(thisStats.scoreAvg, lastStats.scoreAvg)}</div>
-          </div>
-          <div class="weekly-col">
-            <div class="weekly-metric-label">Habits Done</div>
-            <div class="weekly-metric-val">${thisStats.habitPct}<span class="weekly-metric-unit">%</span></div>
-            <div class="weekly-metric-compare">${renderTrend(thisStats.habitPct, lastStats.habitPct, '%')}</div>
-          </div>
-          <div class="weekly-col">
-            <div class="weekly-metric-label">Study Time</div>
-            <div class="weekly-metric-val">${fmtDurationShort(thisStats.studyTotal)}</div>
-            <div class="weekly-metric-compare">${renderTrendStudy(thisStats.studyTotal, lastStats.studyTotal)}</div>
-          </div>
-          <div class="weekly-col">
-            <div class="weekly-metric-label">Sleep Avg</div>
-            <div class="weekly-metric-val">${thisStats.sleepAvg > 0 ? fmtDurationShort(thisStats.sleepAvg) : '—'}</div>
-            <div class="weekly-metric-compare">${renderTrendSleep(thisStats.sleepAvg, lastStats.sleepAvg)}</div>
-          </div>
-          <div class="weekly-col">
-            <div class="weekly-metric-label">Water Avg</div>
-            <div class="weekly-metric-val">${(thisStats.waterAvg / 1000).toFixed(1)}<span class="weekly-metric-unit">L</span></div>
-            <div class="weekly-metric-compare">${renderTrendWater(thisStats.waterAvg, lastStats.waterAvg)}</div>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>`;
 }
 
