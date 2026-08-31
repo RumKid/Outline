@@ -675,6 +675,11 @@ const DM = {
   async pick() {
     try {
       const h = await window.showDirectoryPicker({ mode: 'readwrite' });
+      const permission = await h.queryPermission({ mode: 'readwrite' });
+      if (permission !== 'granted' && await h.requestPermission({ mode: 'readwrite' }) !== 'granted') {
+        this.setStatus('disconnected', 'Folder access denied', 'Allow read/write access and try again');
+        return false;
+      }
       if (!(await this.prepareForFolderSwitch())) return false;
       this.dirHandle = h;
       await this.storeHandle(h);
@@ -712,14 +717,14 @@ const DM = {
   },
 
   // ── Read data from file ───────────────────────────────────────
-  async readText(fileName) {
-    const fh = await this.dirHandle.getFileHandle(fileName);
+  async readText(fileName, handle = this.dirHandle) {
+    const fh = await handle.getFileHandle(fileName);
     const file = await fh.getFile();
     return file.text();
   },
 
-  async writeText(fileName, text) {
-    const fh = await this.dirHandle.getFileHandle(fileName, { create: true });
+  async writeText(fileName, text, handle = this.dirHandle) {
+    const fh = await handle.getFileHandle(fileName, { create: true });
     const wr = await fh.createWritable();
     try {
       await wr.write(text);
@@ -730,26 +735,26 @@ const DM = {
     }
   },
 
-  async backupExistingFile(fileName, backupFileName, previousBackupFileName, skipFlag) {
+  async backupExistingFile(fileName, backupFileName, previousBackupFileName, skipFlag, handle = this.dirHandle) {
     if (this[skipFlag]) {
       this[skipFlag] = false;
       return;
     }
     let currentText;
     try {
-      currentText = await this.readText(fileName);
+      currentText = await this.readText(fileName, handle);
     } catch (error) {
       if (error?.name === 'NotFoundError') return;
       throw error;
     }
 
     try {
-      const previousBackup = await this.readText(backupFileName);
-      await this.writeText(previousBackupFileName, previousBackup);
+      const previousBackup = await this.readText(backupFileName, handle);
+      await this.writeText(previousBackupFileName, previousBackup, handle);
     } catch (error) {
       if (error?.name !== 'NotFoundError') throw error;
     }
-    await this.writeText(backupFileName, currentText);
+    await this.writeText(backupFileName, currentText, handle);
   },
 
   async loadJsonWithBackup(fileName, backupFileName, previousBackupFileName, kind, skipFlag) {
@@ -875,6 +880,7 @@ const DM = {
       if (this.schemaBlocked) this.setStatus('disconnected', 'Unsupported data version', 'Update Outline before saving');
       return false;
     }
+    const targetHandle = this.dirHandle;
     this.setStatus('saving', 'Saving…', 'Writing to folder');
     if (Auth.hasPassword() && Auth.isUnlocked()) await Auth.flushVault();
     const data = {
@@ -901,7 +907,7 @@ const DM = {
     }
 
     try {
-      await this.backupExistingFile(this.fileName, this.backupFileName, this.backupPreviousFileName, 'skipNextDataBackup');
+      await this.backupExistingFile(this.fileName, this.backupFileName, this.backupPreviousFileName, 'skipNextDataBackup', targetHandle);
     } catch (error) {
       console.error('Could not create data backup; save cancelled:', error);
       this.savePending = true;
@@ -913,7 +919,7 @@ const DM = {
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        await this.writeText(this.fileName, JSON.stringify(data, null, 2));
+        await this.writeText(this.fileName, JSON.stringify(data, null, 2), targetHandle);
         this.saveRetryCount = 0;
         const now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
         this.setStatus('connected', 'Saved to folder', `Last saved ${now}`);
@@ -978,6 +984,7 @@ const DM = {
 
   async _doSaveJournal() {
     if (!this.dirHandle) return false;
+    const targetHandle = this.dirHandle;
     const raw = localStorage.getItem('pvp_journal');
     const plainData = Auth.hasPassword() && Auth.isUnlocked()
       ? (S._cache['pvp_journal_dec'] || {})
@@ -986,7 +993,7 @@ const DM = {
       ? await Auth.encrypt(plainData)
       : plainData;
     try {
-      await this.backupExistingFile(this.journalFileName, this.journalBackupFileName, this.journalBackupPreviousFileName, 'skipNextJournalBackup');
+      await this.backupExistingFile(this.journalFileName, this.journalBackupFileName, this.journalBackupPreviousFileName, 'skipNextJournalBackup', targetHandle);
     } catch (error) {
       console.error('Could not create journal backup; save cancelled:', error);
       this.journalSavePending = true;
@@ -997,7 +1004,7 @@ const DM = {
     }
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        await this.writeText(this.journalFileName, JSON.stringify(data, null, 2));
+        await this.writeText(this.journalFileName, JSON.stringify(data, null, 2), targetHandle);
         localStorage.removeItem(this.journalPendingKey);
         this.journalRetryCount = 0;
         return true;
