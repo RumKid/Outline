@@ -122,6 +122,18 @@ function showToast(message, tone = 'info') {
   setTimeout(() => toast.remove(), 3200);
 }
 
+const THEME_KEY = 'pvp_theme';
+function applyTheme(theme = localStorage.getItem(THEME_KEY)) {
+  const nextTheme = theme === 'light' ? 'light' : 'dark';
+  if (document.documentElement) document.documentElement.dataset.theme = nextTheme;
+  return nextTheme;
+}
+function setTheme(theme) {
+  const nextTheme = applyTheme(theme);
+  localStorage.setItem(THEME_KEY, nextTheme);
+  if (curView === 'settings') renderView('settings');
+}
+
 function showWealthValidationError(message) {
   showToast(message, 'error');
 }
@@ -2195,6 +2207,8 @@ function vSettings() {
   const encryptionState = encrypted ? (Auth.isUnlocked() ? 'Unlocked · encrypted' : 'Locked · encrypted') : 'Unencrypted';
   const history = recoveryHistory();
   const checklist = localStorage.getItem('pvp_privacy_checklist_done') !== '1';
+  const currentTheme = applyTheme();
+  const theme = `<section class="card settings-card theme-settings-card"><div class="sec-label">Appearance</div><h2>Theme</h2><p class="settings-help">Choose how Outline looks on this device.</p><div class="theme-options" role="group" aria-label="Theme"><button class="theme-option${currentTheme === 'dark' ? ' active' : ''}" type="button" aria-pressed="${currentTheme === 'dark'}" onclick="setTheme('dark')"><span class="theme-swatch theme-swatch-dark" aria-hidden="true"></span>Dark</button><button class="theme-option${currentTheme === 'light' ? ' active' : ''}" type="button" aria-pressed="${currentTheme === 'light'}" onclick="setTheme('light')"><span class="theme-swatch theme-swatch-light" aria-hidden="true"></span>Light</button></div></section>`;
   const tabs = `<div class="settings-tabs" role="tablist"><button class="settings-tab ${settingsTab === 'storage' ? 'active' : ''}" role="tab" onclick="setSettingsTab('storage')">Storage</button><button class="settings-tab ${settingsTab === 'security' ? 'active' : ''}" role="tab" onclick="setSettingsTab('security')">Security</button><button class="settings-tab ${settingsTab === 'recovery' ? 'active' : ''}" role="tab" onclick="setSettingsTab('recovery')">Recovery</button></div>`;
   let dataStatusWidget = '';
   if (DM.currentStatus) {
@@ -2207,7 +2221,7 @@ function vSettings() {
   const storage = `<section class="card settings-card"><div class="sec-label">Storage</div><h2>${DM.fallback ? 'Browser storage' : 'File storage'}</h2><p class="settings-help">${DM.fallback ? 'Data is stored in this browser. Export backups regularly.' : `Data is stored in ${escH(DM.dirHandle?.name || 'your selected folder')}.`}</p><div class="settings-actions"><button class="btn btn-primary" type="button" onclick="DM.exportCurrentData()">Download full backup</button><button class="btn btn-ghost" type="button" onclick="$('settings-import-input').click()">Restore backup</button><input id="settings-import-input" type="file" accept="application/json" hidden onchange="showBackupPreview(this.files[0])"></div><button class="btn btn-ghost" type="button" onclick="showStorageDiagnostics()">Run storage diagnostics</button>${dataStatusWidget}</section>`;
   const security = `<section class="card settings-card"><div class="sec-label">Encryption status</div><h2>${encryptionState}</h2><p class="settings-help">${encrypted ? 'Your personal data is encrypted locally. Keep your password safe; it cannot be recovered.' : 'Set a password to encrypt personal data and require unlock access.'}</p>${encrypted ? `<input id="settings-new-password" class="input" type="password" placeholder="New password" autocomplete="new-password"><input id="settings-confirm-password" class="input" type="password" placeholder="Confirm new password" autocomplete="new-password"><button class="btn btn-primary" type="button" onclick="doRotatePassword()">Change password</button><div id="settings-password-error" class="settings-error" role="alert"></div>` : `<input id="settings-first-password" class="input" type="password" placeholder="Create password" autocomplete="new-password"><input id="settings-confirm-first-password" class="input" type="password" placeholder="Confirm password" autocomplete="new-password"><button class="btn btn-primary" type="button" onclick="doSetInitialPassword()">Enable encryption</button><div id="settings-password-error" class="settings-error" role="alert"></div>`}</section>${checklist ? `<section class="card settings-card checklist-card"><div class="sec-label">First-run privacy checklist</div><label><input type="checkbox"> I understand Outline stores data locally.</label><label><input type="checkbox"> I will export backups before resetting or changing browsers.</label><label><input type="checkbox"> I understand forgotten encryption passwords cannot be recovered.</label><button class="btn btn-primary" type="button" onclick="completePrivacyChecklist()">I understand</button></section>` : ''}`;
   const recovery = `<section class="card settings-card recovery-card"><div class="sec-label">Recovery history</div>${history.length ? `<ul>${history.map(item => `<li><strong>${escH(item.type)}</strong> — ${escH(item.message)}<span>${escH(new Date(item.at).toLocaleString())}</span></li>`).join('')}</ul>` : '<p class="settings-help">No backups or migrations have been restored yet.</p>'}</section><section class="card settings-card danger-zone"><div class="sec-label">Danger zone</div><p class="settings-help">Reset removes Outline data from this browser. Export a backup first.</p><button class="btn btn-ghost" type="button" onclick="resetOutlineData()">Reset browser data</button></section>`;
-  return `<div class="view-enter"><div class="page-header"><h1 class="page-title">Settings &amp; Data</h1><p class="page-sub">Control storage, encryption, backups, and recovery.</p></div>${tabs}<div class="settings-grid">${settingsTab === 'storage' ? storage : settingsTab === 'security' ? security : recovery}</div></div>`;
+  return `<div class="view-enter"><div class="page-header"><h1 class="page-title">Settings &amp; Data</h1><p class="page-sub">Control storage, encryption, backups, and recovery.</p></div>${tabs}<div class="settings-grid">${theme}${settingsTab === 'storage' ? storage : settingsTab === 'security' ? security : recovery}</div></div>`;
 }
 
 function makeSvgChart(id, labels, data, type, unit = '') {
@@ -4536,6 +4550,7 @@ function recoverStaleSession() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   hydrateIcons();
+  applyTheme();
   document.addEventListener('click', event => {
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (!action) {
