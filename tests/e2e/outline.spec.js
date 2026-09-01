@@ -39,8 +39,7 @@ test('opens the task detail panel and persists its metadata', async ({ page }) =
   await page.getByText('Detailed task', { exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Task details' })).toBeVisible();
   await page.locator('[id^="detail-notes-personal-"]').fill('A useful note');
-  await page.locator('[id^="detail-notes-personal-"]').blur();
-  await expect(page.getByText('A useful note')).toBeVisible();
+  await page.getByRole('dialog', { name: 'Task details' }).getByRole('button', { name: 'Done' }).click();
   await page.reload();
   await completeSetup(page);
   await page.getByRole('button', { name: 'Tasks' }).click();
@@ -71,6 +70,8 @@ test('filters tasks, supports keyboard actions, searches offline, and opens the 
   await page.keyboard.press('Escape');
 
   await page.keyboard.press('Control+k');
+  await expect(page.getByRole('dialog', { name: 'Search Outline' })).toBeVisible();
+  await page.getByRole('dialog', { name: 'Search Outline' }).getByRole('button', { name: 'Commands' }).click();
   await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
   await page.getByRole('dialog', { name: 'Command palette' }).locator('input').fill('Go to Projects');
   await page.keyboard.press('Enter');

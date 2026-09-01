@@ -102,7 +102,7 @@ function loadApp(storage = createStorage()) {
     console
   };
   vm.createContext(context);
-  vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState, cdToggle, doToggleTimer };`, context);
+  vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState, cdToggle, doToggleTimer, fmtDisplayDate };`, context);
   vm.runInContext("this.__outline.vTasks = vTasks; this.__outline.vProjects = vProjects; this.__outline.openTaskDetail = openTaskDetail; this.__outline.closeTaskDetail = closeTaskDetail; this.__outline.saveTaskDetail = saveTaskDetail; this.__outline.taskDetailPanel = taskDetailPanel; this.__outline.setProjectViewMode = setProjectViewMode; this.__outline.setTaskDateFilter = setTaskDateFilter; this.__outline.setTaskCompletionFilter = setTaskCompletionFilter; this.__outline.setProjectStatusFilter = setProjectStatusFilter; this.__outline.setProjectCompletionFilter = setProjectCompletionFilter; this.__outline.buildSearchResults = buildSearchResults; this.__outline.paletteCommands = paletteCommands;", context);
   return { ...context.__outline, storage, content, elements };
 }
@@ -266,6 +266,20 @@ test('task detail edits flush to file-backed storage', async () => {
   assert.equal(saved.estimateMinutes, '30');
 });
 
+test('task details save only with Done, display dates clearly, and hide custom weekdays until selected', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addTask({ id: 'detail-ux', title: 'Original', priority: 'medium', done: false, date: '2026-09-01', subtasks: [] });
+  app.openTaskDetail('personal', 'detail-ux');
+  const panel = await app.taskDetailPanel();
+  assert.match(panel, /Done/);
+  assert.match(panel, /01\/09\/2026/);
+  assert.match(panel, /Due time/);
+  assert.match(panel, /data-recurrence-days="personal-detail-ux" hidden/);
+  assert.doesNotMatch(panel, /detail-title-personal-detail-ux[^>]*onchange/);
+  assert.equal(app.fmtDisplayDate('2026-12-03'), '03/12/2026');
+});
+
 test('tasks render today, overdue, upcoming, and collapsed completed sections', async () => {
   const app = loadApp();
   app.DM.fallback = true;
@@ -308,6 +322,16 @@ test('task filters and project completion/status behavior preserve separate cont
   assert.equal(app.S.projects()[0].tasks[0].status, 'done');
   app.S.toggleProjectTask('status-project', taskId);
   assert.equal(app.S.projects()[0].tasks[0].status, 'in-progress');
+});
+
+test('project completion filter shows completed projects without merging task stores', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addProject({ id: 'completed-project', title: 'Finished project', description: '', status: 'done', tasks: [] });
+  app.setProjectCompletionFilter('completed');
+  await app.renderView('projects');
+  assert.match(app.content.innerHTML, /Finished project/);
+  assert.match(app.content.innerHTML, /value="completed" selected/);
 });
 
 test('offline search respects task contexts and locked encrypted state', async () => {

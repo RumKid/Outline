@@ -45,6 +45,11 @@ const clamp = (v,mn,mx) => Math.max(mn, Math.min(mx, v));
 function fmtDate(d) {
   return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
 }
+function fmtDisplayDate(d) {
+  if (!d) return 'DD/MM/YYYY';
+  const [year, month, day] = d.split('-');
+  return `${day}/${month}/${year}`;
+}
 function fmtDuration(mins) {
   if (!mins || mins <= 0) return '0m';
   const h = Math.floor(mins/60), m = mins%60;
@@ -2546,6 +2551,15 @@ function closeTaskDetail() {
   renderView(curView);
 }
 
+function toggleTaskRecurrenceDays(prefix, select) {
+  const days = document.querySelector(`[data-recurrence-days="${prefix}"]`);
+  if (days) days.hidden = select.value !== 'custom';
+}
+function updateTaskDateDisplay(prefix, input) {
+  const display = document.querySelector(`[data-date-display="${prefix}"]`);
+  if (display) display.textContent = fmtDisplayDate(input.value);
+}
+
 function detailElement(id) { return document.getElementById(id); }
 
 async function saveTaskDetail(kind, taskId, projectId = null) {
@@ -2578,6 +2592,7 @@ async function saveTaskDetail(kind, taskId, projectId = null) {
       : await S.updateProjectTask(projectId, taskId, updates);
     if (!saved) return false;
     if (!DM.fallback) await DM.flush();
+    openTaskDetailState = null;
     await renderView(curView);
     return true;
   });
@@ -2620,26 +2635,26 @@ async function taskDetailPanel() {
   const recurrence = task.recurrence || {};
   const recurrenceDays = Array.isArray(recurrence.days) ? recurrence.days : [];
   const recurrenceOptions = state.kind === 'personal'
-    ? '<label class="task-detail-field">Repeat<select id="detail-recurrence-' + escH(prefix) + '" class="input" onchange="saveTaskDetail(\'personal\',' + eventArg(task.id) + ',null)"><option value="none"' + (!recurrence.type ? ' selected' : '') + '>Does not repeat</option><option value="daily"' + (recurrence.type === 'daily' ? ' selected' : '') + '>Daily</option><option value="weekdays"' + (recurrence.type === 'weekdays' ? ' selected' : '') + '>Weekdays</option><option value="weekly"' + (recurrence.type === 'weekly' ? ' selected' : '') + '>Weekly</option><option value="custom"' + (recurrence.type === 'custom' ? ' selected' : '') + '>Custom days</option></select></label><div class="task-recurrence-days">'
-      + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => '<label><input id="detail-recurrence-day-' + escH(prefix) + '-' + day + '" type="checkbox"' + (recurrenceDays.includes(day) ? ' checked' : '') + ' onchange="saveTaskDetail(\'personal\',' + eventArg(task.id) + ',null)"><span>' + label + '</span></label>').join('')
+    ? '<label class="task-detail-field">Repeat<select id="detail-recurrence-' + escH(prefix) + '" class="input" onchange="toggleTaskRecurrenceDays(' + eventArg(prefix) + ',this)"><option value="none"' + (!recurrence.type ? ' selected' : '') + '>Does not repeat</option><option value="daily"' + (recurrence.type === 'daily' ? ' selected' : '') + '>Daily</option><option value="weekdays"' + (recurrence.type === 'weekdays' ? ' selected' : '') + '>Weekdays</option><option value="weekly"' + (recurrence.type === 'weekly' ? ' selected' : '') + '>Weekly</option><option value="custom"' + (recurrence.type === 'custom' ? ' selected' : '') + '>Custom days</option></select></label><div class="task-recurrence-days" data-recurrence-days="' + escH(prefix) + '"' + (recurrence.type === 'custom' ? '' : ' hidden') + '>'
+      + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => '<label><input id="detail-recurrence-day-' + escH(prefix) + '-' + day + '" type="checkbox"' + (recurrenceDays.includes(day) ? ' checked' : '') + '><span>' + label + '</span></label>').join('')
       + '</div>'
     : '';
   return `<aside class="task-detail-panel" role="dialog" aria-label="Task details">
     <div class="task-detail-header"><div><div class="sec-label">${state.kind === 'personal' ? 'Personal task' : escH(projectTitle)}</div><h2>Task details</h2></div><button class="task-detail-close" type="button" onclick="closeTaskDetail()" aria-label="Close task details">×</button></div>
     <div class="task-detail-body">
-      <label class="task-detail-field task-detail-title-field">Title<input id="detail-title-${escH(prefix)}" class="input" value="${escH(title)}" maxlength="100" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"></label>
-      <label class="task-detail-field">Notes<textarea id="detail-notes-${escH(prefix)}" class="input task-detail-notes" rows="4" placeholder="Add a note..." onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})">${escH(notes)}</textarea></label>
+      <label class="task-detail-field task-detail-title-field">Title<input id="detail-title-${escH(prefix)}" class="input" value="${escH(title)}" maxlength="100"></label>
+      <label class="task-detail-field">Notes<textarea id="detail-notes-${escH(prefix)}" class="input task-detail-notes" rows="4" placeholder="Add a note...">${escH(notes)}</textarea></label>
       <div class="task-detail-grid">
-        <label class="task-detail-field">${state.kind === 'personal' ? 'Due date' : 'Project due date'}<input id="detail-date-${escH(prefix)}" class="input" type="date" value="${escH(date)}" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"></label>
-        <label class="task-detail-field">Time<input id="detail-time-${escH(prefix)}" class="input" type="time" value="${escH(task.dueTime || '')}" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"></label>
-        <label class="task-detail-field">Priority<select id="detail-priority-${escH(prefix)}" class="input" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"><option value="high"${task.priority === 'high' ? ' selected' : ''}>High</option><option value="medium"${(!task.priority || task.priority === 'medium') ? ' selected' : ''}>Medium</option><option value="low"${task.priority === 'low' ? ' selected' : ''}>Low</option></select></label>
-        <label class="task-detail-field">Estimated minutes<input id="detail-estimate-${escH(prefix)}" class="input" type="number" min="0" step="5" value="${escH(task.estimateMinutes ?? '')}" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"></label>
+        <label class="task-detail-field">${state.kind === 'personal' ? 'Due date' : 'Project due date'}<span class="date-display" data-date-display="${escH(prefix)}">${escH(fmtDisplayDate(date))}</span><input id="detail-date-${escH(prefix)}" class="input" type="date" value="${escH(date)}" aria-label="Due date" onchange="updateTaskDateDisplay(${eventArg(prefix)},this)"></label>
+        <label class="task-detail-field">Due time<input id="detail-time-${escH(prefix)}" class="input" type="time" value="${escH(task.dueTime || '')}"></label>
+        <label class="task-detail-field">Priority<select id="detail-priority-${escH(prefix)}" class="input"><option value="high"${task.priority === 'high' ? ' selected' : ''}>High</option><option value="medium"${(!task.priority || task.priority === 'medium') ? ' selected' : ''}>Medium</option><option value="low"${task.priority === 'low' ? ' selected' : ''}>Low</option></select></label>
+        <label class="task-detail-field">Estimated minutes<input id="detail-estimate-${escH(prefix)}" class="input" type="number" min="0" step="5" value="${escH(task.estimateMinutes ?? '')}"></label>
       </div>
       ${recurrenceOptions}
       ${state.kind === 'project' ? `<div class="task-detail-context"><span>Project</span><strong>${escH(projectTitle)}</strong><span>Status</span><strong>${escH(projectStatusLabels[task.status] || 'Backlog')}</strong></div>` : ''}
       <div class="task-detail-subtasks"><div class="task-detail-section-head"><span>Subtasks</span><span>${subtasks.filter(item => item.done).length}/${subtasks.length}</span></div>${subtasks.length ? subtasks.map(subtask => `<div class="task-detail-subtask${subtask.done ? ' done' : ''}"><div class="task-cb${subtask.done ? ' checked' : ''}" onclick="${state.kind === 'personal' ? `doToggleSubtask(${eventArg(task.id)},${eventArg(subtask.id)})` : `doToggleProjectSubtask(${eventArg(state.projectId)},${eventArg(task.id)},${eventArg(subtask.id)})`}">${subtask.done ? '&#10003;' : ''}</div><span>${escH(subtask.title)}</span></div>`).join('') : '<div class="task-detail-empty">No subtasks yet.</div>'}</div>
       <div class="task-detail-subtask-add"><input id="detail-subtask-input" class="input" placeholder="Add subtask..." maxlength="100" onkeydown="if(event.key==='Enter')addDetailSubtask()"><button class="btn btn-ghost" type="button" onclick="addDetailSubtask()">Add</button></div>
-    </div>
+    </div><div class="task-detail-footer"><button class="btn btn-primary" type="button" onclick="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})">Done</button></div>
   </aside>`;
 }
 
@@ -2861,6 +2876,7 @@ function moveProjectTask(projectId, taskId, direction) {
   const target = index + direction;
   if (index < 0 || target < 0 || target >= project.tasks.length) return;
   [project.tasks[index], project.tasks[target]] = [project.tasks[target], project.tasks[index]];
+  selectTask('project', taskId, projectId);
   S.s('pvp_projects', S.projects().map(item => item.id === projectId ? project : item));
   refreshView();
 }
@@ -2887,7 +2903,7 @@ async function vProjects() {
   if (projectViewMode === 'ideas') return vIdeas();
   const projects = await Promise.all(
     (S.projects() || [])
-      .filter(project => project.status !== 'done')
+      .filter(project => projectCompletionFilter === 'all' || (projectCompletionFilter === 'completed' ? project.status === 'done' : project.status !== 'done'))
       .map(async project => {
         const title = await Auth.decryptField(project.title, '[Locked Project]');
         const description = await Auth.decryptField(project.description, '');
@@ -2995,7 +3011,7 @@ async function vProjects() {
       <div class="project-toolbar-controls">
         ${projectViewMode === 'board' ? `<label class="project-board-filter">Filter <select class="project-filter-select" onchange="setProjectBoardFilter(this.value)" aria-label="Filter board by project"><option value="all"${projectBoardFilter === 'all' ? ' selected' : ''}>All Projects</option>${projects.map(project => `<option value="${escH(project.id)}"${project.id === projectBoardFilter ? ' selected' : ''}>${escH(project.decryptedTitle)}</option>`).join('')}</select></label>` : ''}
         <label class="project-board-filter">Status <select class="project-filter-select" onchange="setProjectStatusFilter(this.value)"><option value="all"${projectStatusFilter === 'all' ? ' selected' : ''}>All statuses</option>${Object.entries(projectStatusLabels).map(([value, text]) => `<option value="${value}"${projectStatusFilter === value ? ' selected' : ''}>${text}</option>`).join('')}</select></label>
-        <label class="project-board-filter">Completion <select class="project-filter-select" onchange="setProjectCompletionFilter(this.value)"><option value="active"${projectCompletionFilter === 'active' ? ' selected' : ''}>Active</option><option value="all"${projectCompletionFilter === 'all' ? ' selected' : ''}>All</option><option value="completed"${projectCompletionFilter === 'completed' ? ' selected' : ''}>Completed</option></select></label>
+        <label class="project-board-filter">Projects <select class="project-filter-select" onchange="setProjectCompletionFilter(this.value)" aria-label="Filter projects by completion"><option value="active"${projectCompletionFilter === 'active' ? ' selected' : ''}>Active</option><option value="all"${projectCompletionFilter === 'all' ? ' selected' : ''}>All</option><option value="completed"${projectCompletionFilter === 'completed' ? ' selected' : ''}>Completed</option></select></label>
         <label class="project-board-filter">Priority <select class="project-filter-select" onchange="setProjectTaskPriorityFilter(this.value)"><option value="all"${projectTaskPriorityFilter === 'all' ? ' selected' : ''}>All priorities</option><option value="high"${projectTaskPriorityFilter === 'high' ? ' selected' : ''}>High</option><option value="medium"${projectTaskPriorityFilter === 'medium' ? ' selected' : ''}>Medium</option><option value="low"${projectTaskPriorityFilter === 'low' ? ' selected' : ''}>Low</option></select></label>
         <label class="project-board-filter">Sort <select class="project-filter-select" onchange="setProjectTaskSortMode(this.value)"><option value="manual"${projectTaskSortMode === 'manual' ? ' selected' : ''}>My order</option><option value="priority"${projectTaskSortMode === 'priority' ? ' selected' : ''}>Priority</option><option value="due"${projectTaskSortMode === 'due' ? ' selected' : ''}>Due date</option><option value="created"${projectTaskSortMode === 'created' ? ' selected' : ''}>Created</option></select></label>
         ${projectViewModeButtons()}
@@ -3234,6 +3250,7 @@ async function taskHTML(t){
     +'<div class="task-cb'+(t.done?' checked':'')+'" onclick="event.stopPropagation();doToggleTask('+eventArg(t.id)+')">'+( t.done?'&#10003;':'')+'</div>'
     +'<div class="task-dot dot-'+(t.priority||'medium')+'"></div>'
     +'<span class="task-title-txt" style="flex:1;">'+escH(decryptedTitle)+fractionText+'</span>'
+    +'<span class="task-order-controls"><button type="button" onclick="event.stopPropagation();moveTask('+eventArg(t.id)+',-1)" aria-label="Move task up" title="Move up">↑</button><button type="button" onclick="event.stopPropagation();moveTask('+eventArg(t.id)+',1)" aria-label="Move task down" title="Move down">↓</button></span>'
     +'<button class="add-subtask-btn" style="margin-right:4px;" onclick="event.stopPropagation();toggleAddSubForm('+eventArg(t.id)+')" title="Add subtask">+</button>'
     +'<button class="task-move" style="margin-right:4px;" onclick="event.stopPropagation();doMoveTaskToNextDay('+eventArg(t.id)+')" title="Move to next day">Tomorrow</button>'
     +'<button class="task-del" onclick="event.stopPropagation();doDelTask('+eventArg(t.id)+')">&#10005;</button>'
@@ -3254,6 +3271,16 @@ function doMoveTaskToNextDay(id){
   S.moveTaskToDate(id, addDays(task.date, 1));
   refreshView();
   updateScore();
+}
+function moveTask(id, direction) {
+  const tasks = S.tasks();
+  const index = tasks.findIndex(task => task.id === id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= tasks.length) return;
+  [tasks[index], tasks[target]] = [tasks[target], tasks[index]];
+  selectTask('personal', id);
+  S.s('pvp_tasks', tasks);
+  refreshView();
 }
 function doDelTask(id){ S.delTask(id); refreshView(); updateScore(); }
 
@@ -4136,7 +4163,7 @@ function openGlobalSearch(initial = '') {
   closeActiveOverlay();
   const overlay = document.createElement('div');
   overlay.className = 'outline-overlay';
-  overlay.innerHTML = `<div class="outline-overlay-card" role="dialog" aria-modal="true" aria-label="Search Outline"><div class="outline-overlay-head"><span>Search Outline</span><button type="button" class="task-detail-close" onclick="closeActiveOverlay()" aria-label="Close search">×</button></div><input id="outline-search-input" class="input" autocomplete="off" placeholder="Search tasks and projects..." value="${escH(initial)}"><div class="outline-search-results"></div></div>`;
+  overlay.innerHTML = `<div class="outline-overlay-card" role="dialog" aria-modal="true" aria-label="Search Outline"><div class="outline-overlay-head"><span>Search Outline</span><div><button class="btn btn-ghost search-commands-btn" type="button" onclick="closeActiveOverlay();openCommandPalette()">Commands</button><button type="button" class="task-detail-close" onclick="closeActiveOverlay()" aria-label="Close search">×</button></div></div><input id="outline-search-input" class="input" autocomplete="off" placeholder="Search tasks and projects..." value="${escH(initial)}"><div class="outline-search-results"></div></div>`;
   overlay.addEventListener('click', event => { if (event.target === overlay) closeActiveOverlay(); });
   document.body.appendChild(overlay);
   activeOverlay = 'search';
@@ -4199,11 +4226,14 @@ function openCommandPalette() {
 const LOCK_SVG = iconSvg('lock');
 
 function lockAndNavigate(view) {
-  Auth.lock();
-  S._cache['pvp_journal_dec'] = undefined;
-  S._cache['pvp_ideas_dec']   = undefined;
-  curView = view; // stay on same view so refreshView works correctly
-  renderView(view);
+  // Let a journal draft's debounced save finish before clearing decrypted state.
+  setTimeout(() => Promise.resolve(DM.flush()).finally(() => {
+    Auth.lock();
+    S._cache['pvp_journal_dec'] = undefined;
+    S._cache['pvp_ideas_dec']   = undefined;
+    curView = view;
+    renderView(view);
+  }), 550);
 }
 
 function vLockScreen(section) {
@@ -4901,13 +4931,13 @@ function initDate(){
    KEYBOARD SHORTCUTS
    ================================================================ */
 document.addEventListener('keydown',e=>{
+  if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
-    if (activeOverlay === 'commands') closeActiveOverlay(); else openCommandPalette();
+    if (activeOverlay === 'search') closeActiveOverlay(); else openGlobalSearch();
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
   if (activeOverlay) return;
   if (e.key === 'Escape' && openTaskDetailState) { closeTaskDetail(); return; }
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -4923,7 +4953,6 @@ document.addEventListener('keydown',e=>{
   if (e.key === 'Enter' || e.key === ' ') { if (document.activeElement?.matches('.task-item[tabindex], .project-board-task[tabindex]')) { e.preventDefault(); openTaskDetailState ? closeTaskDetail() : document.activeElement.click(); return; } }
   if (e.key.toLowerCase() === 'x') { toggleSelectedTask(); return; }
   if (e.key.toLowerCase() === 'm') { moveSelectedTask(); return; }
-  if (['1','2','3','4'].includes(e.key) && selectedTaskState?.kind === 'project') { changeSelectedProjectStatus(['backlog','todo','in-progress','done'][Number(e.key) - 1]); return; }
   if(e.key==='t'||e.key==='T'){navigate('tasks');setTimeout(()=>$('task-in')?.focus(),120);}
   if(e.key==='p'||e.key==='P'){navigate('projects');setTimeout(()=>$('proj-title')?.focus(),120);}
   if(e.key==='w'||e.key==='W'){S.addWater(250);updateScore();if(curView==='water')refreshView();if(curView==='dashboard')navigate('dashboard');}

@@ -375,8 +375,9 @@
     .task-controls { display:flex; justify-content:flex-end; gap:8px; margin:-4px 0 4px; }
     .task-controls label { display:flex; align-items:center; gap:5px; color:var(--text-muted); font-size:11px; }
     .task-controls .input { width:auto; padding:6px 8px; font-size:11px; }
-    .topbar-search-btn { border:1px solid var(--border-default); border-radius:6px; background:var(--bg-card); color:var(--text-muted); cursor:pointer; padding:6px 10px; font:inherit; font-size:11px; }
+    .topbar-search-btn { border:1px solid var(--border-hover); border-radius:7px; background:var(--bg-elevated); color:var(--text-primary); cursor:pointer; padding:7px 11px; font:inherit; font-size:11px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,.18); }
     .topbar-search-btn:hover { color:var(--text-primary); border-color:var(--border-hover); }
+    .topbar-search-btn kbd { margin-left:8px; color:var(--text-muted); font:10px 'JetBrains Mono',monospace; }
     .outline-overlay { position:fixed; inset:0; z-index:1300; display:flex; align-items:flex-start; justify-content:center; padding:12vh 16px 20px; background:rgba(0,0,0,.5); }
     .outline-overlay-card { width:min(560px,100%); max-height:70vh; overflow:auto; padding:16px; background:var(--bg-elevated); border:1px solid var(--border-hover); border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,.4); }
     .outline-overlay-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; color:var(--text-primary); font-size:14px; font-weight:700; }
@@ -406,6 +407,11 @@
     .task-detail-empty { color:var(--text-muted); font-size:12px; }
     .task-detail-subtask-add { display:flex; gap:7px; margin-top:10px; }
     .task-detail-subtask-add .input { flex:1; min-width:0; }
+    .task-detail-footer { display:flex; justify-content:flex-end; padding:0 22px 22px; }
+    .date-display { color:var(--text-primary); font:12px 'JetBrains Mono',monospace; }
+    .task-order-controls { display:flex; gap:2px; }
+    .task-order-controls button { border:1px solid var(--border-default); border-radius:4px; background:var(--bg-elevated); color:var(--text-muted); cursor:pointer; padding:2px 5px; font-size:11px; }
+    .task-order-controls button:hover { color:var(--text-primary); border-color:var(--border-hover); }
     .task-recurrence-days { display:flex; gap:5px; flex-wrap:wrap; margin-top:-8px; }
     .task-recurrence-days label { display:flex; align-items:center; gap:4px; padding:5px 7px; border:1px solid var(--border-default); border-radius:5px; color:var(--text-muted); font-size:10px; cursor:pointer; }
     .task-recurrence-days label:has(input:checked) { color:var(--text-primary); border-color:var(--text-secondary); background:var(--accent-dim); }
