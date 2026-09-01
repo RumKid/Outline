@@ -48,6 +48,35 @@ test('opens the task detail panel and persists its metadata', async ({ page }) =
   await expect(page.locator('[id^="detail-notes-personal-"]')).toHaveValue('A useful note');
 });
 
+test('filters tasks, supports keyboard actions, searches offline, and opens the command palette', async ({ page }) => {
+  await page.getByRole('button', { name: 'Tasks' }).click();
+  await page.locator('#task-in').first().fill('Keyboard target');
+  await page.getByRole('button', { name: '+ Add' }).first().click();
+  const task = page.locator('.task-item').filter({ hasText: 'Keyboard target' }).first();
+  await task.focus();
+  await page.keyboard.press('x');
+  await page.locator('label').filter({ hasText: 'Completion' }).locator('select').selectOption('all');
+  const completedTask = page.locator('.task-item').filter({ hasText: 'Keyboard target' }).first();
+  await expect(completedTask).toHaveClass(/done/);
+  await completedTask.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Task details' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Task details' })).not.toBeVisible();
+
+  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('dialog', { name: 'Search Outline' }).locator('input').fill('Keyboard target');
+  await page.getByRole('dialog', { name: 'Search Outline' }).getByRole('button', { name: 'Keyboard target' }).click();
+  await expect(page.getByRole('dialog', { name: 'Task details' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.keyboard.press('Control+k');
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
+  await page.getByRole('dialog', { name: 'Command palette' }).locator('input').fill('Go to Projects');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+});
+
 test('previews and restores a browser backup', async ({ page }) => {
   await page.evaluate(() => localStorage.setItem('pvp_tasks', JSON.stringify([{ id: 'backup-task', title: 'Restored from backup', date: '2026-08-26', done: false, subtasks: [] }])));
   await page.getByRole('button', { name: 'Settings & Data' }).click();

@@ -103,7 +103,7 @@ function loadApp(storage = createStorage()) {
   };
   vm.createContext(context);
   vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState, cdToggle, doToggleTimer };`, context);
-  vm.runInContext("this.__outline.vTasks = vTasks; this.__outline.openTaskDetail = openTaskDetail; this.__outline.closeTaskDetail = closeTaskDetail; this.__outline.saveTaskDetail = saveTaskDetail; this.__outline.taskDetailPanel = taskDetailPanel; this.__outline.setProjectViewMode = setProjectViewMode;", context);
+  vm.runInContext("this.__outline.vTasks = vTasks; this.__outline.vProjects = vProjects; this.__outline.openTaskDetail = openTaskDetail; this.__outline.closeTaskDetail = closeTaskDetail; this.__outline.saveTaskDetail = saveTaskDetail; this.__outline.taskDetailPanel = taskDetailPanel; this.__outline.setProjectViewMode = setProjectViewMode; this.__outline.setTaskDateFilter = setTaskDateFilter; this.__outline.setTaskCompletionFilter = setTaskCompletionFilter; this.__outline.setProjectStatusFilter = setProjectStatusFilter; this.__outline.setProjectCompletionFilter = setProjectCompletionFilter; this.__outline.buildSearchResults = buildSearchResults; this.__outline.paletteCommands = paletteCommands;", context);
   return { ...context.__outline, storage, content, elements };
 }
 
@@ -282,6 +282,48 @@ test('tasks render today, overdue, upcoming, and collapsed completed sections', 
   assert.match(app.content.innerHTML, /Overdue task/);
   assert.match(app.content.innerHTML, /Upcoming task/);
   assert.doesNotMatch(app.content.innerHTML, /Completed task/);
+  assert.match(app.content.innerHTML, /Completion/);
+});
+
+test('task filters and project completion/status behavior preserve separate contexts', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  const date = app.today();
+  await app.S.addTask({ id: 'filter-today', title: 'High today', priority: 'high', done: false, date, subtasks: [] });
+  await app.S.addTask({ id: 'filter-done', title: 'Done today', priority: 'low', done: true, date, subtasks: [] });
+  app.setTaskDateFilter('today');
+  app.setTaskCompletionFilter('active');
+  await app.renderView('tasks');
+  assert.match(app.content.innerHTML, /High today/);
+  assert.doesNotMatch(app.content.innerHTML, /Done today/);
+  app.setTaskCompletionFilter('completed');
+  await app.renderView('tasks');
+  assert.match(app.content.innerHTML, /Done today/);
+
+  await app.S.addProject({ id: 'status-project', title: 'Status project', description: '', status: 'active', tasks: [] });
+  await app.S.addProjectTask('status-project', 'Status task', 'medium');
+  const taskId = app.S.projects()[0].tasks[0].id;
+  app.S.setProjectTaskStatus('status-project', taskId, 'in-progress');
+  app.S.toggleProjectTask('status-project', taskId);
+  assert.equal(app.S.projects()[0].tasks[0].status, 'done');
+  app.S.toggleProjectTask('status-project', taskId);
+  assert.equal(app.S.projects()[0].tasks[0].status, 'in-progress');
+});
+
+test('offline search respects task contexts and locked encrypted state', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addTask({ id: 'search-personal', title: 'Private planning', notes: 'Personal note', date: app.today(), done: false, subtasks: [] });
+  await app.S.addProject({ id: 'search-project', title: 'Launch project', description: 'Project note', status: 'active', tasks: [] });
+  await app.S.addProjectTask('search-project', 'Project planning', 'high');
+  let results = await app.buildSearchResults('planning');
+  assert.equal(results.map(result => result.kind).join(','), 'personal,project-task');
+  await app.Auth.setPassword('search password', {}, []);
+  results = await app.buildSearchResults('planning');
+  assert.equal(results.map(result => result.kind).join(','), 'personal,project-task');
+  app.Auth.lock();
+  assert.equal((await app.buildSearchResults('planning')).length, 0);
+  assert.ok(app.paletteCommands().some(([label]) => label === 'Search tasks and projects'));
 });
 
 test('project tasks support a personal board workflow', async () => {
@@ -360,6 +402,8 @@ test('project task UX preserves statuses and renders filters, list controls, dea
   assert.match(app.content.innerHTML, /Priority/);
   assert.match(app.content.innerHTML, /Sort/);
   assert.match(app.content.innerHTML, /List/);
+  assert.match(app.content.innerHTML, /Status/);
+  assert.match(app.content.innerHTML, /Completion/);
   app.openTaskDetail('project', taskId, 'health-project');
   await app.renderView('projects');
   assert.match(app.content.innerHTML, /Project notes/);

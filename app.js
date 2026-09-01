@@ -1604,7 +1604,7 @@ const S = {
       if (task.id !== taskId) return task;
       const nextDone = !task.done;
       const subtasks = (task.subtasks || []).map(subtask => ({ ...subtask, done: nextDone }));
-      return { ...task, status: nextDone ? 'done' : 'backlog', done: nextDone, subtasks };
+      return { ...task, status: nextDone ? 'done' : (task.previousStatus || 'backlog'), previousStatus: nextDone ? (task.status === 'done' ? task.previousStatus : task.status) : undefined, done: nextDone, subtasks };
     });
     this.s('pvp_projects', list);
   },
@@ -1622,7 +1622,7 @@ const S = {
     const project = list.find(item => item.id === projectId);
     if (!project) return;
     project.tasks = (project.tasks || []).map(task => task.id === taskId
-      ? { ...task, status, done: status === 'done', subtasks: status === 'done' ? (task.subtasks || []).map(subtask => ({ ...subtask, done: true })) : task.subtasks }
+      ? { ...task, status, previousStatus: status === 'done' ? (task.status === 'done' ? task.previousStatus : task.status) : undefined, done: status === 'done', subtasks: status === 'done' ? (task.subtasks || []).map(subtask => ({ ...subtask, done: true })) : task.subtasks }
       : task);
     this.s('pvp_projects', list);
   },
@@ -2520,6 +2520,9 @@ let taskViewMode = 'today';
 let taskPriorityFilter = 'all';
 let taskSortMode = 'manual';
 let completedTasksOpen = false;
+let taskDateFilter = 'all';
+let taskCompletionFilter = 'active';
+let selectedTaskState = null;
 let openTaskDetailState = null;
 let detailSaveQueue = Promise.resolve();
 
@@ -2646,8 +2649,53 @@ function setTaskViewMode(mode) {
 }
 
 function setTaskPriorityFilter(value) { taskPriorityFilter = value || 'all'; renderView('tasks'); }
+function setTaskDateFilter(value) { taskDateFilter = value || 'all'; renderView('tasks'); }
+function setTaskCompletionFilter(value) { taskCompletionFilter = value || 'active'; renderView('tasks'); }
 function setTaskSortMode(value) { taskSortMode = value || 'manual'; renderView('tasks'); }
 function toggleCompletedTasks() { completedTasksOpen = !completedTasksOpen; renderView('tasks'); }
+
+function taskMatchesDate(task) {
+  if (taskDateFilter === 'today') return task.date === today();
+  if (taskDateFilter === 'overdue') return Boolean(task.date && task.date < today());
+  if (taskDateFilter === 'upcoming') return Boolean(task.date && task.date > today());
+  return true;
+}
+
+function selectTask(kind, taskId, projectId = null) {
+  selectedTaskState = { kind, taskId, projectId };
+}
+
+function selectedTask() {
+  if (!selectedTaskState) return null;
+  if (selectedTaskState.kind === 'personal') return S.tasks().find(task => task.id === selectedTaskState.taskId) || null;
+  const project = S.projects().find(item => item.id === selectedTaskState.projectId);
+  const task = project?.tasks?.find(item => item.id === selectedTaskState.taskId);
+  return task ? { task, project } : null;
+}
+
+function openSelectedTask() {
+  if (!selectedTaskState) return;
+  openTaskDetail(selectedTaskState.kind, selectedTaskState.taskId, selectedTaskState.projectId);
+}
+
+function toggleSelectedTask() {
+  const selected = selectedTask();
+  if (!selected) return;
+  if (selectedTaskState.kind === 'personal') doToggleTask(selected.id);
+  else doToggleProjectTask(selected.project.id, selected.task.id);
+}
+
+function moveSelectedTask() {
+  const selected = selectedTask();
+  if (!selected || selectedTaskState.kind !== 'personal') return;
+  doMoveTaskToNextDay(selected.id);
+}
+
+function changeSelectedProjectStatus(status) {
+  const selected = selectedTask();
+  if (!selected || selectedTaskState.kind !== 'project') return;
+  doSetProjectTaskStatus(selected.project.id, selected.task.id, status);
+}
 
 function sortPersonalTasks(tasks) {
   const priority = { high: 0, medium: 1, low: 2 };
@@ -2674,10 +2722,11 @@ function taskViewModeButtons() {
 async function vTasks(){
   if (taskViewMode === 'week') return vWeekTasks();
   const allTasks = S.tasks();
-  const filteredTasks = allTasks.filter(task => taskPriorityFilter === 'all' || task.priority === taskPriorityFilter);
-  const todayTasks = filteredTasks.filter(task => !task.done && task.date === today());
-  const overdueTasks = filteredTasks.filter(task => !task.done && task.date && task.date < today());
-  const upcomingTasks = filteredTasks.filter(task => !task.done && task.date && task.date > today());
+  const filteredTasks = allTasks.filter(task => taskMatchesDate(task) && (taskPriorityFilter === 'all' || task.priority === taskPriorityFilter));
+  const activeFilteredTasks = filteredTasks.filter(task => !task.done);
+  const todayTasks = activeFilteredTasks.filter(task => task.date === today());
+  const overdueTasks = activeFilteredTasks.filter(task => task.date && task.date < today());
+  const upcomingTasks = activeFilteredTasks.filter(task => task.date && task.date > today());
   const completedTasks = filteredTasks.filter(task => task.done);
   const activeTasks = [...todayTasks, ...overdueTasks, ...upcomingTasks];
   const done = allTasks.filter(task => task.done && task.date === today()).length;
@@ -2697,11 +2746,11 @@ async function vTasks(){
           </select>
           <button class="btn btn-primary" onclick="doAddTask()">+ Add</button>
         </div>
-        <div class="task-controls"><label>Priority <select class="input" onchange="setTaskPriorityFilter(this.value)"><option value="all"${taskPriorityFilter === 'all' ? ' selected' : ''}>All</option><option value="high"${taskPriorityFilter === 'high' ? ' selected' : ''}>High</option><option value="medium"${taskPriorityFilter === 'medium' ? ' selected' : ''}>Medium</option><option value="low"${taskPriorityFilter === 'low' ? ' selected' : ''}>Low</option></select></label><label>Sort <select class="input" onchange="setTaskSortMode(this.value)"><option value="manual"${taskSortMode === 'manual' ? ' selected' : ''}>My order</option><option value="date"${taskSortMode === 'date' ? ' selected' : ''}>Due date</option><option value="priority"${taskSortMode === 'priority' ? ' selected' : ''}>Priority</option><option value="duration"${taskSortMode === 'duration' ? ' selected' : ''}>Duration</option></select></label></div>
-        ${await personalTaskSection('Today', todayTasks, 'Nothing scheduled for today.')}
-        ${await personalTaskSection('Overdue', overdueTasks, 'Nothing overdue.')}
-        ${await personalTaskSection('Upcoming', upcomingTasks, 'No upcoming tasks.')}
-        ${await personalTaskSection('Completed', completedTasks, 'No completed tasks yet.', { collapsed: true, toggle: true })}
+        <div class="task-controls"><label>Date <select class="input" onchange="setTaskDateFilter(this.value)"><option value="all"${taskDateFilter === 'all' ? ' selected' : ''}>All dates</option><option value="today"${taskDateFilter === 'today' ? ' selected' : ''}>Today</option><option value="overdue"${taskDateFilter === 'overdue' ? ' selected' : ''}>Overdue</option><option value="upcoming"${taskDateFilter === 'upcoming' ? ' selected' : ''}>Upcoming</option></select></label><label>Completion <select class="input" onchange="setTaskCompletionFilter(this.value)"><option value="active"${taskCompletionFilter === 'active' ? ' selected' : ''}>Active</option><option value="all"${taskCompletionFilter === 'all' ? ' selected' : ''}>All</option><option value="completed"${taskCompletionFilter === 'completed' ? ' selected' : ''}>Completed</option></select></label><label>Priority <select class="input" onchange="setTaskPriorityFilter(this.value)"><option value="all"${taskPriorityFilter === 'all' ? ' selected' : ''}>All</option><option value="high"${taskPriorityFilter === 'high' ? ' selected' : ''}>High</option><option value="medium"${taskPriorityFilter === 'medium' ? ' selected' : ''}>Medium</option><option value="low"${taskPriorityFilter === 'low' ? ' selected' : ''}>Low</option></select></label><label>Sort <select class="input" onchange="setTaskSortMode(this.value)"><option value="manual"${taskSortMode === 'manual' ? ' selected' : ''}>My order</option><option value="date"${taskSortMode === 'date' ? ' selected' : ''}>Due date</option><option value="priority"${taskSortMode === 'priority' ? ' selected' : ''}>Priority</option><option value="duration"${taskSortMode === 'duration' ? ' selected' : ''}>Duration</option></select></label></div>
+        ${taskCompletionFilter !== 'completed' ? await personalTaskSection('Today', todayTasks, 'Nothing scheduled for today.') : ''}
+        ${taskCompletionFilter !== 'completed' ? await personalTaskSection('Overdue', overdueTasks, 'Nothing overdue.') : ''}
+        ${taskCompletionFilter !== 'completed' ? await personalTaskSection('Upcoming', upcomingTasks, 'No upcoming tasks.') : ''}
+        ${await personalTaskSection('Completed', completedTasks, 'No completed tasks yet.', { collapsed: taskCompletionFilter === 'active', toggle: true })}
         ${todayTotal > 0 ? `
           <div style="margin-top:20px;">
             <div class="pbar-labels"><span>${done}/${todayTotal} completed today</span><span style="color:var(--tasks);font-weight:700;">${pct}%</span></div>
@@ -2772,6 +2821,8 @@ let projectBoardFilter = 'all';
 let projectTaskPriorityFilter = 'all';
 let projectTaskSortMode = 'manual';
 let projectCompletedOpen = false;
+let projectStatusFilter = 'all';
+let projectCompletionFilter = 'active';
 const projectStatusLabels = { backlog: 'Backlog', todo: 'To Do', 'in-progress': 'In Progress', done: 'Done' };
 function setProjectViewMode(mode) {
   projectViewMode = ['list', 'ideas'].includes(mode) ? mode : 'board';
@@ -2783,6 +2834,8 @@ function projectViewModeButtons() {
 }
 function setProjectTaskPriorityFilter(value) { projectTaskPriorityFilter = value || 'all'; refreshView(); }
 function setProjectTaskSortMode(value) { projectTaskSortMode = value || 'manual'; refreshView(); }
+function setProjectStatusFilter(value) { projectStatusFilter = value || 'all'; refreshView(); }
+function setProjectCompletionFilter(value) { projectCompletionFilter = value || 'active'; refreshView(); }
 function toggleProjectCompletedTasks() { projectCompletedOpen = !projectCompletedOpen; refreshView(); }
 function sortProjectTasks(tasks) {
   const priority = { high: 0, medium: 1, low: 2 };
@@ -2871,11 +2924,15 @@ async function vProjects() {
   const boardTasks = projectBoardFilter === 'all'
     ? allBoardTasks
     : allBoardTasks.filter(task => task.projectId === projectBoardFilter);
-  const visibleBoardTasks = boardTasks.filter(task => projectTaskPriorityFilter === 'all' || task.priority === projectTaskPriorityFilter);
+  const visibleBoardTasks = boardTasks.filter(task =>
+    (projectStatusFilter === 'all' || task.status === projectStatusFilter) &&
+    (projectCompletionFilter !== 'completed' || task.done) &&
+    (projectTaskPriorityFilter === 'all' || task.priority === projectTaskPriorityFilter)
+  );
   const boardHTML = `<div class="project-board">
     ${Object.entries(projectStatusLabels).map(([status, label]) => {
       const columnTasks = sortProjectTasks(visibleBoardTasks.filter(task => task.status === status));
-      const hiddenCompleted = status === 'done' && !projectCompletedOpen;
+      const hiddenCompleted = status === 'done' && !projectCompletedOpen && projectCompletionFilter !== 'completed';
       return `<section class="project-board-column" data-project-status="${status}">
         <div class="project-board-column-head"><span>${label}</span><strong>${columnTasks.length}${status === 'done' ? ` <button class="project-completed-toggle" onclick="toggleProjectCompletedTasks()">${projectCompletedOpen ? 'Hide' : 'Show'}</button>` : ''}</strong></div>
         ${projectBoardFilter !== 'all' ? `<div class="project-board-quick-add"><input id="board-task-in-${status}" class="input" placeholder="Add to ${label.toLowerCase()}..." maxlength="100" onkeydown="if(event.key==='Enter')doAddBoardProjectTask(${eventArg(projectBoardFilter)},'${status}')"><select id="board-task-pri-${status}" class="input" aria-label="New task priority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select><button class="btn btn-ghost" onclick="doAddBoardProjectTask(${eventArg(projectBoardFilter)},'${status}')">Add</button></div>` : ''}
@@ -2897,7 +2954,7 @@ async function vProjects() {
                   </label>`).join('')}
                 </div>
               </div>` : '';
-            return `<article class="project-board-task" tabindex="0" role="button" onclick="openTaskDetail('project',${eventArg(task.id)},${eventArg(task.projectId)})" onkeydown="if(event.key==='Enter'||event.key===' ')openTaskDetail('project',${eventArg(task.id)},${eventArg(task.projectId)})">
+            return `<article class="project-board-task${selectedTaskState?.kind === 'project' && selectedTaskState.taskId === task.id ? ' selected' : ''}" tabindex="0" role="button" onclick="selectTask('project',${eventArg(task.id)},${eventArg(task.projectId)});openTaskDetail('project',${eventArg(task.id)},${eventArg(task.projectId)})" onfocus="selectTask('project',${eventArg(task.id)},${eventArg(task.projectId)})" onkeydown="if(event.key==='Enter'||event.key===' ')openTaskDetail('project',${eventArg(task.id)},${eventArg(task.projectId)})">
             <div class="project-board-task-project">${escH(task.projectTitle)}</div>
             <div class="project-board-task-title">${escH(task.decryptedTitle || '')}</div>
             <div class="project-board-task-meta">
@@ -2937,6 +2994,8 @@ async function vProjects() {
       </div>
       <div class="project-toolbar-controls">
         ${projectViewMode === 'board' ? `<label class="project-board-filter">Filter <select class="project-filter-select" onchange="setProjectBoardFilter(this.value)" aria-label="Filter board by project"><option value="all"${projectBoardFilter === 'all' ? ' selected' : ''}>All Projects</option>${projects.map(project => `<option value="${escH(project.id)}"${project.id === projectBoardFilter ? ' selected' : ''}>${escH(project.decryptedTitle)}</option>`).join('')}</select></label>` : ''}
+        <label class="project-board-filter">Status <select class="project-filter-select" onchange="setProjectStatusFilter(this.value)"><option value="all"${projectStatusFilter === 'all' ? ' selected' : ''}>All statuses</option>${Object.entries(projectStatusLabels).map(([value, text]) => `<option value="${value}"${projectStatusFilter === value ? ' selected' : ''}>${text}</option>`).join('')}</select></label>
+        <label class="project-board-filter">Completion <select class="project-filter-select" onchange="setProjectCompletionFilter(this.value)"><option value="active"${projectCompletionFilter === 'active' ? ' selected' : ''}>Active</option><option value="all"${projectCompletionFilter === 'all' ? ' selected' : ''}>All</option><option value="completed"${projectCompletionFilter === 'completed' ? ' selected' : ''}>Completed</option></select></label>
         <label class="project-board-filter">Priority <select class="project-filter-select" onchange="setProjectTaskPriorityFilter(this.value)"><option value="all"${projectTaskPriorityFilter === 'all' ? ' selected' : ''}>All priorities</option><option value="high"${projectTaskPriorityFilter === 'high' ? ' selected' : ''}>High</option><option value="medium"${projectTaskPriorityFilter === 'medium' ? ' selected' : ''}>Medium</option><option value="low"${projectTaskPriorityFilter === 'low' ? ' selected' : ''}>Low</option></select></label>
         <label class="project-board-filter">Sort <select class="project-filter-select" onchange="setProjectTaskSortMode(this.value)"><option value="manual"${projectTaskSortMode === 'manual' ? ' selected' : ''}>My order</option><option value="priority"${projectTaskSortMode === 'priority' ? ' selected' : ''}>Priority</option><option value="due"${projectTaskSortMode === 'due' ? ' selected' : ''}>Due date</option><option value="created"${projectTaskSortMode === 'created' ? ' selected' : ''}>Created</option></select></label>
         ${projectViewModeButtons()}
@@ -2952,8 +3011,12 @@ async function vProjects() {
         ${await Promise.all(projects.map(async project => {
           const progress = project.total > 0 ? Math.round((project.completed / project.total) * 100) : 0;
           const health = projectHealth(project);
-          const visibleProjectTasks = sortProjectTasks(project.tasks.filter(task => projectTaskPriorityFilter === 'all' || task.priority === projectTaskPriorityFilter));
-          const taskItems = visibleProjectTasks.length > 0 ? (await Promise.all(visibleProjectTasks.filter(task => projectCompletedOpen || !task.done).map(task => projectTaskHTML(project.id, task)))).join('') : '';
+          const visibleProjectTasks = sortProjectTasks(project.tasks.filter(task =>
+            (projectStatusFilter === 'all' || task.status === projectStatusFilter) &&
+            (projectCompletionFilter !== 'completed' || task.done) &&
+            (projectTaskPriorityFilter === 'all' || task.priority === projectTaskPriorityFilter)
+          ));
+          const taskItems = visibleProjectTasks.length > 0 ? (await Promise.all(visibleProjectTasks.filter(task => projectCompletedOpen || !task.done || projectCompletionFilter === 'completed').map(task => projectTaskHTML(project.id, task)))).join('') : '';
           return `
             <div class="card" style="display:flex;flex-direction:column;gap:12px;">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
@@ -3104,7 +3167,7 @@ async function projectTaskHTML(projectId, task) {
     ? '<div class="subtasks-list" data-project-id="' + escH(projectId) + '" data-parent-id="' + escH(task.id) + '" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">' + subItems.join('') + '</div>'
     : '';
   var addForm = '<div class="add-subtask-form-container ' + (isFormOpen ? '' : 'hidden') + '" id="proj-asf-' + escH(projectId) + '-' + escH(task.id) + '" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="proj-subin-' + escH(projectId) + '-' + escH(task.id) + '" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleProjectSubForm(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">Cancel</button></div></div>';
-  var inner = '<div class="task-item' + (task.done ? ' done' : '') + '" id="proj-ti-' + escH(projectId) + '-' + escH(task.id) + '" tabindex="0" role="button" onclick="openTaskDetail(\'project\',' + eventArg(task.id) + ',' + eventArg(projectId) + ')" onkeydown="if(event.key===\'Enter\'||event.key===\' \')openTaskDetail(\'project\',' + eventArg(task.id) + ',' + eventArg(projectId) + ')">'
+  var inner = '<div class="task-item' + (task.done ? ' done' : '') + (selectedTaskState?.kind === 'project' && selectedTaskState.taskId === task.id ? ' selected' : '') + '" id="proj-ti-' + escH(projectId) + '-' + escH(task.id) + '" tabindex="0" role="button" onclick="selectTask(\'project\',' + eventArg(task.id) + ',' + eventArg(projectId) + ');openTaskDetail(\'project\',' + eventArg(task.id) + ',' + eventArg(projectId) + ')" onfocus="selectTask(\'project\',' + eventArg(task.id) + ',' + eventArg(projectId) + ')" onkeydown="if(event.key===\'Enter\'||event.key===\' \')openTaskDetail(\'project\',' + eventArg(task.id) + ',' + eventArg(projectId) + ')">'
     + '<div class="task-cb' + (task.done ? ' checked' : '') + '" onclick="event.stopPropagation();doToggleProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">' + (task.done ? '&#10003;' : '') + '</div>'
     + '<div class="task-dot dot-' + (task.priority || 'medium') + '"></div>'
     + '<span class="task-title-txt" style="flex:1;">' + escH(decryptedTitle) + fractionText + '</span>'
@@ -3167,7 +3230,7 @@ async function taskHTML(t){
     ?'<div class="subtasks-list" data-parent-id="'+escH(t.id)+'" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">'+subItems.join('')+'</div>'
     :'';
   var addForm='<div class="add-subtask-form-container '+(isFormOpen?'':'hidden')+'" id="asf-'+escH(t.id)+'" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="subin-'+escH(t.id)+'" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddSubtask('+eventArg(t.id)+')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddSubtask('+eventArg(t.id)+')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleAddSubForm('+eventArg(t.id)+')">Cancel</button></div></div>';
-  var inner='<div class="task-item'+(t.done?' done':'')+'" id="ti-'+escH(t.id)+'" tabindex="0" role="button" onclick="openTaskDetail(\'personal\','+eventArg(t.id)+')" onkeydown="if(event.key===\'Enter\'||event.key===\' \')openTaskDetail(\'personal\','+eventArg(t.id)+')">'
+  var inner='<div class="task-item'+(t.done?' done':'')+(selectedTaskState?.kind === 'personal' && selectedTaskState.taskId === t.id ? ' selected':'')+'" id="ti-'+escH(t.id)+'" tabindex="0" role="button" onclick="selectTask(\'personal\','+eventArg(t.id)+');openTaskDetail(\'personal\','+eventArg(t.id)+')" onfocus="selectTask(\'personal\','+eventArg(t.id)+')" onkeydown="if(event.key===\'Enter\'||event.key===\' \')openTaskDetail(\'personal\','+eventArg(t.id)+')">'
     +'<div class="task-cb'+(t.done?' checked':'')+'" onclick="event.stopPropagation();doToggleTask('+eventArg(t.id)+')">'+( t.done?'&#10003;':'')+'</div>'
     +'<div class="task-dot dot-'+(t.priority||'medium')+'"></div>'
     +'<span class="task-title-txt" style="flex:1;">'+escH(decryptedTitle)+fractionText+'</span>'
@@ -4005,6 +4068,133 @@ function navigate(v){
 }
 function refreshView(){ renderView(curView); }
 
+let activeOverlay = null;
+let searchResults = [];
+let searchRequestId = 0;
+
+async function buildSearchResults(query) {
+  const needle = String(query || '').trim().toLocaleLowerCase();
+  if (!needle || (Auth.hasPassword() && !Auth.isUnlocked())) return [];
+  const results = [];
+  for (const task of S.tasks()) {
+    const title = await Auth.decryptField(task.title, '');
+    const notes = await Auth.decryptField(task.notes, '');
+    const haystack = [title, notes, task.date, task.dueTime, task.priority, task.estimateMinutes].join(' ').toLocaleLowerCase();
+    if (haystack.includes(needle)) results.push({ kind: 'personal', id: task.id, title, detail: notes || task.date || 'Personal task' });
+  }
+  for (const project of S.projects()) {
+    const projectTitle = await Auth.decryptField(project.title, '');
+    const projectDescription = await Auth.decryptField(project.description, '');
+    if ([projectTitle, projectDescription, project.deadline].join(' ').toLocaleLowerCase().includes(needle)) {
+      results.push({ kind: 'project', projectId: project.id, title: projectTitle, detail: projectDescription || project.deadline || 'Project' });
+    }
+    for (const task of project.tasks || []) {
+      const title = await Auth.decryptField(task.title, '');
+      const notes = await Auth.decryptField(task.notes, '');
+      const haystack = [title, notes, projectTitle, task.dueDate, task.dueTime, task.priority, task.status, task.estimateMinutes].join(' ').toLocaleLowerCase();
+      if (haystack.includes(needle)) results.push({ kind: 'project-task', id: task.id, projectId: project.id, title, detail: notes || projectTitle || 'Project task' });
+    }
+  }
+  return results.slice(0, 50);
+}
+
+function closeActiveOverlay() {
+  document.querySelector('.outline-overlay')?.remove();
+  activeOverlay = null;
+}
+
+function selectSearchResult(index) {
+  const result = searchResults[index];
+  if (!result) return;
+  closeActiveOverlay();
+  if (result.kind === 'personal') {
+    curView = 'tasks';
+    openTaskDetail('personal', result.id);
+  } else if (result.kind === 'project-task') {
+    curView = 'projects';
+    openTaskDetail('project', result.id, result.projectId);
+  } else {
+    navigate('projects');
+  }
+}
+
+async function updateSearchOverlay(query) {
+  const requestId = ++searchRequestId;
+  const results = await buildSearchResults(query);
+  if (requestId !== searchRequestId) return;
+  searchResults = results;
+  const list = document.querySelector('.outline-search-results');
+  if (!list) return;
+  if (Auth.hasPassword() && !Auth.isUnlocked()) {
+    list.innerHTML = '<div class="outline-overlay-empty">Unlock Outline to search encrypted data.</div>';
+    return;
+  }
+  list.innerHTML = searchResults.length ? searchResults.map((result, index) => `<button class="outline-search-result" type="button" onclick="selectSearchResult(${index})"><span>${escH(result.title || '[Untitled]')}</span><small>${escH(result.detail || '')}</small></button>`).join('') : '<div class="outline-overlay-empty">No matching tasks or projects.</div>';
+}
+
+function openGlobalSearch(initial = '') {
+  closeActiveOverlay();
+  const overlay = document.createElement('div');
+  overlay.className = 'outline-overlay';
+  overlay.innerHTML = `<div class="outline-overlay-card" role="dialog" aria-modal="true" aria-label="Search Outline"><div class="outline-overlay-head"><span>Search Outline</span><button type="button" class="task-detail-close" onclick="closeActiveOverlay()" aria-label="Close search">×</button></div><input id="outline-search-input" class="input" autocomplete="off" placeholder="Search tasks and projects..." value="${escH(initial)}"><div class="outline-search-results"></div></div>`;
+  overlay.addEventListener('click', event => { if (event.target === overlay) closeActiveOverlay(); });
+  document.body.appendChild(overlay);
+  activeOverlay = 'search';
+  const input = document.getElementById('outline-search-input');
+  input?.addEventListener('input', event => updateSearchOverlay(event.target.value));
+  input?.focus();
+  if (initial) updateSearchOverlay(initial);
+}
+
+function paletteCommands() {
+  const commands = [
+    ['Go to Dashboard', () => navigate('dashboard')], ['Go to Tasks', () => navigate('tasks')], ['Go to Projects', () => navigate('projects')],
+    ['Search tasks and projects', () => openGlobalSearch()], ['Create Personal Task', () => { navigate('tasks'); setTimeout(() => $('task-in')?.focus(), 80); }],
+    ['Create Project Task', () => { navigate('projects'); setTimeout(() => document.querySelector('[id^="proj-task-in-"]')?.focus(), 80); }],
+    ['Show active personal tasks', () => { taskCompletionFilter = 'active'; renderView('tasks'); }],
+    ['Show completed personal tasks', () => { taskCompletionFilter = 'completed'; completedTasksOpen = true; renderView('tasks'); }],
+    ['Show all project statuses', () => { projectStatusFilter = 'all'; renderView('projects'); }],
+    ['Show completed project tasks', () => { projectCompletionFilter = 'completed'; projectCompletedOpen = true; renderView('projects'); }]
+  ];
+  return commands;
+}
+
+function openCommandPalette() {
+  closeActiveOverlay();
+  const overlay = document.createElement('div');
+  overlay.className = 'outline-overlay';
+  overlay.innerHTML = `<div class="outline-overlay-card" role="dialog" aria-modal="true" aria-label="Command palette"><div class="outline-overlay-head"><span>Command palette</span><button type="button" class="task-detail-close" onclick="closeActiveOverlay()" aria-label="Close command palette">×</button></div><input id="outline-command-input" class="input" autocomplete="off" placeholder="Type a command..." value=""><div class="outline-command-results"></div></div>`;
+  overlay.addEventListener('click', event => { if (event.target === overlay) closeActiveOverlay(); });
+  document.body.appendChild(overlay);
+  activeOverlay = 'commands';
+  const input = document.getElementById('outline-command-input');
+  let commandIndex = 0;
+  const renderCommands = () => {
+    const query = input?.value.toLocaleLowerCase() || '';
+    const commands = paletteCommands().filter(([label]) => label.toLocaleLowerCase().includes(query));
+    document.querySelector('.outline-command-results').innerHTML = commands.map(([label], index) => `<button class="outline-search-result" type="button" data-command-index="${index}">${escH(label)}</button>`).join('') || '<div class="outline-overlay-empty">No commands.</div>';
+    document.querySelectorAll('[data-command-index]').forEach(button => button.addEventListener('click', () => { const command = commands[Number(button.dataset.commandIndex)]; closeActiveOverlay(); command?.[1](); }));
+    commandIndex = Math.min(commandIndex, Math.max(0, commands.length - 1));
+    document.querySelector(`[data-command-index="${commandIndex}"]`)?.classList.add('selected');
+    return commands;
+  };
+  input?.addEventListener('input', () => { commandIndex = 0; renderCommands(); });
+  input?.addEventListener('keydown', event => {
+    const commands = renderCommands();
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      commandIndex = (commandIndex + (event.key === 'ArrowDown' ? 1 : -1) + commands.length) % Math.max(1, commands.length);
+      renderCommands();
+    } else if (event.key === 'Enter' && commands[commandIndex]) {
+      event.preventDefault();
+      closeActiveOverlay();
+      commands[commandIndex][1]();
+    }
+  });
+  input?.focus();
+  renderCommands();
+}
+
 /* ── LOCK SCREEN ─────────────────────────────────────────────── */
 const LOCK_SVG = iconSvg('lock');
 
@@ -4711,7 +4901,29 @@ function initDate(){
    KEYBOARD SHORTCUTS
    ================================================================ */
 document.addEventListener('keydown',e=>{
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    if (activeOverlay === 'commands') closeActiveOverlay(); else openCommandPalette();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
+  if (activeOverlay) return;
+  if (e.key === 'Escape' && openTaskDetailState) { closeTaskDetail(); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const items = [...document.querySelectorAll('.task-item[tabindex], .project-board-task[tabindex]')];
+    if (items.length) {
+      const current = items.indexOf(document.activeElement);
+      const next = items[(current + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+      e.preventDefault(); next.focus();
+    }
+    return;
+  }
+  if (openTaskDetailState) return;
+  if (e.key === 'Enter' || e.key === ' ') { if (document.activeElement?.matches('.task-item[tabindex], .project-board-task[tabindex]')) { e.preventDefault(); openTaskDetailState ? closeTaskDetail() : document.activeElement.click(); return; } }
+  if (e.key.toLowerCase() === 'x') { toggleSelectedTask(); return; }
+  if (e.key.toLowerCase() === 'm') { moveSelectedTask(); return; }
+  if (['1','2','3','4'].includes(e.key) && selectedTaskState?.kind === 'project') { changeSelectedProjectStatus(['backlog','todo','in-progress','done'][Number(e.key) - 1]); return; }
   if(e.key==='t'||e.key==='T'){navigate('tasks');setTimeout(()=>$('task-in')?.focus(),120);}
   if(e.key==='p'||e.key==='P'){navigate('projects');setTimeout(()=>$('proj-title')?.focus(),120);}
   if(e.key==='w'||e.key==='W'){S.addWater(250);updateScore();if(curView==='water')refreshView();if(curView==='dashboard')navigate('dashboard');}
@@ -4835,9 +5047,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (action === 'restore-permission') restorePermission();
     if (action === 'data-status') handleDataStatusClick();
     if (action === 'show-help') showHelp();
+    if (action === 'global-search') openGlobalSearch();
   });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
+      if (activeOverlay) { closeActiveOverlay(); return; }
       const dialog = document.querySelector('.backup-preview');
       if (dialog) { dialog.remove(); $('settings-import-input')?.focus(); }
       if (openTaskDetailState) { closeTaskDetail(); return; }
