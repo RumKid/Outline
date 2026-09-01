@@ -32,6 +32,22 @@ test('persists a task across a real browser reload', async ({ page }) => {
   await expect(page.getByText('Survives reload')).toBeVisible();
 });
 
+test('opens the task detail panel and persists its metadata', async ({ page }) => {
+  await page.getByRole('button', { name: 'Tasks' }).click();
+  await page.locator('#task-in').first().fill('Detailed task');
+  await page.getByRole('button', { name: '+ Add' }).first().click();
+  await page.getByText('Detailed task', { exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Task details' })).toBeVisible();
+  await page.locator('[id^="detail-notes-personal-"]').fill('A useful note');
+  await page.locator('[id^="detail-notes-personal-"]').blur();
+  await expect(page.getByText('A useful note')).toBeVisible();
+  await page.reload();
+  await completeSetup(page);
+  await page.getByRole('button', { name: 'Tasks' }).click();
+  await page.getByText('Detailed task', { exact: true }).click();
+  await expect(page.locator('[id^="detail-notes-personal-"]')).toHaveValue('A useful note');
+});
+
 test('previews and restores a browser backup', async ({ page }) => {
   await page.evaluate(() => localStorage.setItem('pvp_tasks', JSON.stringify([{ id: 'backup-task', title: 'Restored from backup', date: '2026-08-26', done: false, subtasks: [] }])));
   await page.getByRole('button', { name: 'Settings & Data' }).click();

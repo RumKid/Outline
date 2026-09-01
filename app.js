@@ -298,6 +298,11 @@ const Auth = (() => {
             return subCopy;
           }));
         }
+        if (typeof taskCopy.notes === 'string' && taskCopy.notes) {
+          const enc = await aesEncrypt(key, taskCopy.notes);
+          taskCopy.notes = { _enc: true, ...enc };
+          tasksModified = true;
+        }
         return taskCopy;
       }));
       if (tasksModified) {
@@ -375,6 +380,11 @@ const Auth = (() => {
             if (typeof taskCopy.title === 'string') {
               const enc = await aesEncrypt(key, taskCopy.title);
               taskCopy.title = { _enc: true, ...enc };
+              projectsModified = true;
+            }
+            if (typeof taskCopy.notes === 'string' && taskCopy.notes) {
+              const enc = await aesEncrypt(key, taskCopy.notes);
+              taskCopy.notes = { _enc: true, ...enc };
               projectsModified = true;
             }
             if (taskCopy.subtasks) {
@@ -1557,14 +1567,34 @@ const S = {
   delProject(id) {
     this.s('pvp_projects', this.projects().filter(project => project.id !== id));
   },
-  async addProjectTask(projectId, title, priority = 'medium') {
+  async addProjectTask(projectId, title, priority = 'medium', status = 'backlog') {
     const list = this.projects();
     const project = list.find(item => item.id === projectId);
     if (!project) return;
     const encryptedTitle = await Auth.encryptField(title);
     project.tasks = Array.isArray(project.tasks) ? project.tasks : [];
-    project.tasks.push({ id: uid(), title: encryptedTitle, priority, status: 'backlog', done: false, subtasks: [], createdAt: new Date().toISOString() });
+    project.tasks.push({ id: uid(), title: encryptedTitle, priority, status: ['backlog', 'todo', 'in-progress', 'done'].includes(status) ? status : 'backlog', done: status === 'done', subtasks: [], createdAt: new Date().toISOString() });
     this.s('pvp_projects', list);
+  },
+  async updateProjectTask(projectId, taskId, updates) {
+    const list = this.projects();
+    const project = list.find(item => item.id === projectId);
+    const index = project?.tasks?.findIndex(task => task.id === taskId) ?? -1;
+    if (!project || index === -1 || !updates || typeof updates !== 'object') return false;
+    const next = { ...updates };
+    if (typeof next.title === 'string') {
+      next.title = await Auth.encryptField(next.title.trim());
+      if (!next.title) return false;
+    }
+    if (typeof next.notes === 'string') next.notes = await Auth.encryptField(next.notes);
+    if (next.priority !== undefined && !['high', 'medium', 'low'].includes(next.priority)) return false;
+    if (next.status !== undefined && !['backlog', 'todo', 'in-progress', 'done'].includes(next.status)) return false;
+    if (next.dueDate !== undefined && next.dueDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(next.dueDate)) return false;
+    if (next.dueTime !== undefined && next.dueTime !== '' && !/^\d{2}:\d{2}$/.test(next.dueTime)) return false;
+    if (next.estimateMinutes !== undefined && next.estimateMinutes !== '' && (!Number.isFinite(Number(next.estimateMinutes)) || Number(next.estimateMinutes) < 0)) return false;
+    project.tasks[index] = { ...project.tasks[index], ...next };
+    this.s('pvp_projects', list);
+    return true;
   },
   toggleProjectTask(projectId, taskId) {
     const list = this.projects();
@@ -2487,10 +2517,151 @@ function dashAddWater(){ S.addWater(250); updateScore(); refreshView(); }
 
 /* ── TASKS ── */
 let taskViewMode = 'today';
+let taskPriorityFilter = 'all';
+let taskSortMode = 'manual';
+let completedTasksOpen = false;
+let openTaskDetailState = null;
+let detailSaveQueue = Promise.resolve();
+
+// Personal Tasks and Project Tasks intentionally remain separate records:
+// Personal Tasks are stored in pvp_tasks and use date/daily workflow fields;
+// Project Tasks are nested in pvp_projects and use project board statuses.
+// The detail panel shares presentation only; it never converts or links them.
+function queueDetailSave(operation) {
+  const next = detailSaveQueue.then(operation, operation);
+  detailSaveQueue = next.catch(() => {});
+  return next;
+}
+
+function openTaskDetail(kind, taskId, projectId = null) {
+  openTaskDetailState = { kind, taskId, projectId };
+  renderView(curView);
+}
+
+function closeTaskDetail() {
+  openTaskDetailState = null;
+  renderView(curView);
+}
+
+function detailElement(id) { return document.getElementById(id); }
+
+async function saveTaskDetail(kind, taskId, projectId = null) {
+  const prefix = `${kind}-${taskId}`;
+  const title = detailElement(`detail-title-${prefix}`)?.value?.trim();
+  if (!title) return;
+  const updates = {
+    title,
+    notes: detailElement(`detail-notes-${prefix}`)?.value || '',
+    priority: detailElement(`detail-priority-${prefix}`)?.value || 'medium',
+    dueTime: detailElement(`detail-time-${prefix}`)?.value || '',
+    estimateMinutes: detailElement(`detail-estimate-${prefix}`)?.value || ''
+  };
+  if (kind === 'personal') updates.date = detailElement(`detail-date-${prefix}`)?.value || today();
+  if (kind === 'project') updates.dueDate = detailElement(`detail-date-${prefix}`)?.value || '';
+  if (kind === 'personal') {
+    const recurrenceType = detailElement(`detail-recurrence-${prefix}`)?.value || 'none';
+    const currentTask = S.tasks().find(task => task.id === taskId);
+    const days = [0, 1, 2, 3, 4, 5, 6].filter(day => detailElement(`detail-recurrence-day-${prefix}-${day}`)?.checked);
+    const fallbackDay = new Date((updates.date || today()) + 'T12:00:00').getDay();
+    updates.recurrence = recurrenceType === 'none' ? null : {
+      type: recurrenceType,
+      days: recurrenceType === 'custom' ? (days.length ? days : currentTask?.recurrence?.days || [fallbackDay]) : []
+    };
+  }
+
+  await queueDetailSave(async () => {
+    const saved = kind === 'personal'
+      ? await S.updateTask(taskId, updates)
+      : await S.updateProjectTask(projectId, taskId, updates);
+    if (!saved) return false;
+    if (!DM.fallback) await DM.flush();
+    await renderView(curView);
+    return true;
+  });
+}
+
+async function addDetailSubtask() {
+  const { kind, taskId, projectId = null } = openTaskDetailState || {};
+  const input = detailElement('detail-subtask-input');
+  const title = input?.value?.trim();
+  if (!title) return;
+  await queueDetailSave(async () => {
+    if (kind === 'personal') await S.addSubtask(taskId, title);
+    else await S.addProjectSubtask(projectId, taskId, title);
+    if (!DM.fallback) await DM.flush();
+    await renderView(curView);
+  });
+}
+
+async function taskDetailPanel() {
+  const state = openTaskDetailState;
+  if (!state) return '';
+  let task;
+  let projectTitle = '';
+  if (state.kind === 'personal') {
+    task = S.tasks().find(item => item.id === state.taskId);
+  } else {
+    const project = S.projects().find(item => item.id === state.projectId);
+    task = project?.tasks?.find(item => item.id === state.taskId);
+    if (project) projectTitle = await Auth.decryptField(project.title, '[Locked Project]');
+  }
+  if (!task) { openTaskDetailState = null; return ''; }
+  const prefix = `${state.kind}-${task.id}`;
+  const title = await Auth.decryptField(task.title, '[Locked Task]');
+  const notes = await Auth.decryptField(task.notes, '');
+  const subtasks = await Promise.all((task.subtasks || []).map(async subtask => ({
+    ...subtask,
+    title: await Auth.decryptField(subtask.title, '[Locked Subtask]')
+  })));
+  const date = state.kind === 'personal' ? (task.date || '') : (task.dueDate || '');
+  const recurrence = task.recurrence || {};
+  const recurrenceDays = Array.isArray(recurrence.days) ? recurrence.days : [];
+  const recurrenceOptions = state.kind === 'personal'
+    ? '<label class="task-detail-field">Repeat<select id="detail-recurrence-' + escH(prefix) + '" class="input" onchange="saveTaskDetail(\'personal\',' + eventArg(task.id) + ',null)"><option value="none"' + (!recurrence.type ? ' selected' : '') + '>Does not repeat</option><option value="daily"' + (recurrence.type === 'daily' ? ' selected' : '') + '>Daily</option><option value="weekdays"' + (recurrence.type === 'weekdays' ? ' selected' : '') + '>Weekdays</option><option value="weekly"' + (recurrence.type === 'weekly' ? ' selected' : '') + '>Weekly</option><option value="custom"' + (recurrence.type === 'custom' ? ' selected' : '') + '>Custom days</option></select></label><div class="task-recurrence-days">'
+      + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => '<label><input id="detail-recurrence-day-' + escH(prefix) + '-' + day + '" type="checkbox"' + (recurrenceDays.includes(day) ? ' checked' : '') + ' onchange="saveTaskDetail(\'personal\',' + eventArg(task.id) + ',null)"><span>' + label + '</span></label>').join('')
+      + '</div>'
+    : '';
+  return `<aside class="task-detail-panel" role="dialog" aria-label="Task details">
+    <div class="task-detail-header"><div><div class="sec-label">${state.kind === 'personal' ? 'Personal task' : escH(projectTitle)}</div><h2>Task details</h2></div><button class="task-detail-close" type="button" onclick="closeTaskDetail()" aria-label="Close task details">×</button></div>
+    <div class="task-detail-body">
+      <label class="task-detail-field task-detail-title-field">Title<input id="detail-title-${escH(prefix)}" class="input" value="${escH(title)}" maxlength="100" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"></label>
+      <label class="task-detail-field">Notes<textarea id="detail-notes-${escH(prefix)}" class="input task-detail-notes" rows="4" placeholder="Add a note..." onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})">${escH(notes)}</textarea></label>
+      <div class="task-detail-grid">
+        <label class="task-detail-field">${state.kind === 'personal' ? 'Due date' : 'Project due date'}<input id="detail-date-${escH(prefix)}" class="input" type="date" value="${escH(date)}" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"></label>
+        <label class="task-detail-field">Time<input id="detail-time-${escH(prefix)}" class="input" type="time" value="${escH(task.dueTime || '')}" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"></label>
+        <label class="task-detail-field">Priority<select id="detail-priority-${escH(prefix)}" class="input" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"><option value="high"${task.priority === 'high' ? ' selected' : ''}>High</option><option value="medium"${(!task.priority || task.priority === 'medium') ? ' selected' : ''}>Medium</option><option value="low"${task.priority === 'low' ? ' selected' : ''}>Low</option></select></label>
+        <label class="task-detail-field">Estimated minutes<input id="detail-estimate-${escH(prefix)}" class="input" type="number" min="0" step="5" value="${escH(task.estimateMinutes ?? '')}" onchange="saveTaskDetail('${state.kind}',${eventArg(task.id)},${state.kind === 'project' ? eventArg(state.projectId) : 'null'})"></label>
+      </div>
+      ${recurrenceOptions}
+      ${state.kind === 'project' ? `<div class="task-detail-context"><span>Project</span><strong>${escH(projectTitle)}</strong><span>Status</span><strong>${escH(projectStatusLabels[task.status] || 'Backlog')}</strong></div>` : ''}
+      <div class="task-detail-subtasks"><div class="task-detail-section-head"><span>Subtasks</span><span>${subtasks.filter(item => item.done).length}/${subtasks.length}</span></div>${subtasks.length ? subtasks.map(subtask => `<div class="task-detail-subtask${subtask.done ? ' done' : ''}"><div class="task-cb${subtask.done ? ' checked' : ''}" onclick="${state.kind === 'personal' ? `doToggleSubtask(${eventArg(task.id)},${eventArg(subtask.id)})` : `doToggleProjectSubtask(${eventArg(state.projectId)},${eventArg(task.id)},${eventArg(subtask.id)})`}">${subtask.done ? '&#10003;' : ''}</div><span>${escH(subtask.title)}</span></div>`).join('') : '<div class="task-detail-empty">No subtasks yet.</div>'}</div>
+      <div class="task-detail-subtask-add"><input id="detail-subtask-input" class="input" placeholder="Add subtask..." maxlength="100" onkeydown="if(event.key==='Enter')addDetailSubtask()"><button class="btn btn-ghost" type="button" onclick="addDetailSubtask()">Add</button></div>
+    </div>
+  </aside>`;
+}
 
 function setTaskViewMode(mode) {
   taskViewMode = mode === 'week' ? 'week' : 'today';
   renderView('tasks');
+}
+
+function setTaskPriorityFilter(value) { taskPriorityFilter = value || 'all'; renderView('tasks'); }
+function setTaskSortMode(value) { taskSortMode = value || 'manual'; renderView('tasks'); }
+function toggleCompletedTasks() { completedTasksOpen = !completedTasksOpen; renderView('tasks'); }
+
+function sortPersonalTasks(tasks) {
+  const priority = { high: 0, medium: 1, low: 2 };
+  return [...tasks].sort((a, b) => {
+    if (taskSortMode === 'priority') return (priority[a.priority] ?? 1) - (priority[b.priority] ?? 1);
+    if (taskSortMode === 'date') return String(a.date || '').localeCompare(String(b.date || ''));
+    if (taskSortMode === 'duration') return (Number(a.estimateMinutes) || 0) - (Number(b.estimateMinutes) || 0);
+    return 0;
+  });
+}
+
+async function personalTaskSection(title, tasks, emptyMessage, options = {}) {
+  const items = (await Promise.all(sortPersonalTasks(tasks).map(task => taskHTML(task)))).join('');
+  return `<section class="task-section"><div class="task-section-header"><div><h2>${title}</h2><span>${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}</span></div>${options.toggle ? `<button class="btn btn-ghost task-section-toggle" onclick="toggleCompletedTasks()">${completedTasksOpen ? 'Hide' : 'Show'}</button>` : ''}</div>${options.collapsed && !completedTasksOpen ? '' : `<div class="task-list">${items || `<div class="task-section-empty">${emptyMessage}</div>`}</div>`}</section>`;
 }
 
 function taskViewModeButtons() {
@@ -2502,12 +2673,19 @@ function taskViewModeButtons() {
 
 async function vTasks(){
   if (taskViewMode === 'week') return vWeekTasks();
-  const todayTasks=S.tasks().filter(t=>t.date===today());
-  const done=todayTasks.filter(t=>t.done).length;
-  const pct=todayTasks.length>0?Math.round(done/todayTasks.length*100):0;
-  const taskItemsHTML = (await Promise.all(todayTasks.map(t => taskHTML(t)))).join('');
+  const allTasks = S.tasks();
+  const filteredTasks = allTasks.filter(task => taskPriorityFilter === 'all' || task.priority === taskPriorityFilter);
+  const todayTasks = filteredTasks.filter(task => !task.done && task.date === today());
+  const overdueTasks = filteredTasks.filter(task => !task.done && task.date && task.date < today());
+  const upcomingTasks = filteredTasks.filter(task => !task.done && task.date && task.date > today());
+  const completedTasks = filteredTasks.filter(task => task.done);
+  const activeTasks = [...todayTasks, ...overdueTasks, ...upcomingTasks];
+  const done = allTasks.filter(task => task.done && task.date === today()).length;
+  const todayTotal = allTasks.filter(task => task.date === today()).length;
+  const pct = todayTotal > 0 ? Math.round(done / todayTotal * 100) : 0;
+  const panel = await taskDetailPanel();
   return `<div class="view-enter">
-    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;"><div><h1 class="page-title">Tasks</h1><p class="page-sub">Today's focus list</p></div>${taskViewModeButtons()}</div>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;"><div><h1 class="page-title">Tasks</h1><p class="page-sub">A clear view of what needs your attention.</p></div>${taskViewModeButtons()}</div>
     <div class="tasks-layout">
       <div>
         <div class="add-task-row">
@@ -2519,14 +2697,14 @@ async function vTasks(){
           </select>
           <button class="btn btn-primary" onclick="doAddTask()">+ Add</button>
         </div>
-        <div class="task-list">
-          ${todayTasks.length===0
-            ?emptyState('clipboard', 'No tasks yet. Add something above.')
-            :taskItemsHTML}
-        </div>
-        ${todayTasks.length>0?`
+        <div class="task-controls"><label>Priority <select class="input" onchange="setTaskPriorityFilter(this.value)"><option value="all"${taskPriorityFilter === 'all' ? ' selected' : ''}>All</option><option value="high"${taskPriorityFilter === 'high' ? ' selected' : ''}>High</option><option value="medium"${taskPriorityFilter === 'medium' ? ' selected' : ''}>Medium</option><option value="low"${taskPriorityFilter === 'low' ? ' selected' : ''}>Low</option></select></label><label>Sort <select class="input" onchange="setTaskSortMode(this.value)"><option value="manual"${taskSortMode === 'manual' ? ' selected' : ''}>My order</option><option value="date"${taskSortMode === 'date' ? ' selected' : ''}>Due date</option><option value="priority"${taskSortMode === 'priority' ? ' selected' : ''}>Priority</option><option value="duration"${taskSortMode === 'duration' ? ' selected' : ''}>Duration</option></select></label></div>
+        ${await personalTaskSection('Today', todayTasks, 'Nothing scheduled for today.')}
+        ${await personalTaskSection('Overdue', overdueTasks, 'Nothing overdue.')}
+        ${await personalTaskSection('Upcoming', upcomingTasks, 'No upcoming tasks.')}
+        ${await personalTaskSection('Completed', completedTasks, 'No completed tasks yet.', { collapsed: true, toggle: true })}
+        ${todayTotal > 0 ? `
           <div style="margin-top:20px;">
-            <div class="pbar-labels"><span>${done}/${todayTasks.length} completed</span><span style="color:var(--tasks);font-weight:700;">${pct}%</span></div>
+            <div class="pbar-labels"><span>${done}/${todayTotal} completed today</span><span style="color:var(--tasks);font-weight:700;">${pct}%</span></div>
             <div class="pbar-wrap" style="height:7px;"><div class="pbar-fill" style="width:${pct}%;background:linear-gradient(90deg,var(--tasks),#fb7185);box-shadow:0 0 10px rgba(244,114,182,0.4);"></div></div>
           </div>`:''}
       </div>
@@ -2540,12 +2718,13 @@ async function vTasks(){
             ${[['high','High'],['medium','Medium'],['low','Low']].map(([p,l])=>`
               <div style="display:flex;align-items:center;gap:9px;font-size:13px;">
                 <span style="color:var(--text-secondary);">${l}</span>
-                <span style="margin-left:auto;font-weight:700;color:var(--text-secondary);">${todayTasks.filter(t=>t.priority===p).length}</span>
+                <span style="margin-left:auto;font-weight:700;color:var(--text-secondary);">${activeTasks.filter(t=>t.priority===p).length}</span>
               </div>`).join('')}
           </div>
         </div>
       </div>
     </div>
+    ${panel}
   </div>`;
 }
 
@@ -2590,6 +2769,9 @@ async function vWeekTasks() {
 /* ── PROJECTS ── */
 let projectViewMode = 'board';
 let projectBoardFilter = 'all';
+let projectTaskPriorityFilter = 'all';
+let projectTaskSortMode = 'manual';
+let projectCompletedOpen = false;
 const projectStatusLabels = { backlog: 'Backlog', todo: 'To Do', 'in-progress': 'In Progress', done: 'Done' };
 function setProjectViewMode(mode) {
   projectViewMode = ['list', 'ideas'].includes(mode) ? mode : 'board';
@@ -2597,7 +2779,51 @@ function setProjectViewMode(mode) {
   refreshView();
 }
 function projectViewModeButtons() {
-  return `<div class="project-view-toggle"><button class="btn ${projectViewMode === 'board' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('board')">Board</button><button class="btn ${projectViewMode === 'list' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('list')">Projects</button><button class="btn ${projectViewMode === 'ideas' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('ideas')">Ideas</button></div>`;
+  return `<div class="project-view-toggle"><button class="btn ${projectViewMode === 'board' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('board')">Board</button><button class="btn ${projectViewMode === 'list' ? 'btn-primary' : 'btn-ghost'}" onclick="setProjectViewMode('list')">List</button></div>`;
+}
+function setProjectTaskPriorityFilter(value) { projectTaskPriorityFilter = value || 'all'; refreshView(); }
+function setProjectTaskSortMode(value) { projectTaskSortMode = value || 'manual'; refreshView(); }
+function toggleProjectCompletedTasks() { projectCompletedOpen = !projectCompletedOpen; refreshView(); }
+function sortProjectTasks(tasks) {
+  const priority = { high: 0, medium: 1, low: 2 };
+  return [...tasks].sort((a, b) => {
+    if (projectTaskSortMode === 'priority') return (priority[a.priority] ?? 1) - (priority[b.priority] ?? 1);
+    if (projectTaskSortMode === 'due') return String(a.dueDate || '9999-12-31').localeCompare(String(b.dueDate || '9999-12-31'));
+    if (projectTaskSortMode === 'created') return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+    return 0;
+  });
+}
+async function doAddBoardProjectTask(projectId, status) {
+  const input = $(`board-task-in-${status}`);
+  const priority = $(`board-task-pri-${status}`);
+  const title = input?.value?.trim();
+  if (!title || !projectId || projectId === 'all') return;
+  await S.addProjectTask(projectId, title, priority?.value || 'medium', status);
+  refreshView();
+}
+function moveProjectTask(projectId, taskId, direction) {
+  const project = S.projects().find(item => item.id === projectId);
+  if (!project) return;
+  const index = project.tasks.findIndex(task => task.id === taskId);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= project.tasks.length) return;
+  [project.tasks[index], project.tasks[target]] = [project.tasks[target], project.tasks[index]];
+  S.s('pvp_projects', S.projects().map(item => item.id === projectId ? project : item));
+  refreshView();
+}
+function projectHealth(project) {
+  const progress = project.total ? project.completed / project.total : 0;
+  if (project.deadline && project.deadline < today() && progress < 1) return { label: 'Overdue', tone: 'danger' };
+  if (project.deadline) {
+    const days = Math.ceil((new Date(project.deadline + 'T12:00:00') - new Date(today() + 'T12:00:00')) / 86400000);
+    if (days <= 3 && progress < 1) return { label: 'At risk', tone: 'warning' };
+  }
+  return { label: 'On track', tone: 'success' };
+}
+async function doUpdateProjectDeadline(projectId, value) {
+  if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+  await S.updateProject(projectId, { deadline: value || '' });
+  refreshView();
 }
 function setProjectBoardFilter(projectId) {
   projectBoardFilter = projectId || 'all';
@@ -2645,13 +2871,16 @@ async function vProjects() {
   const boardTasks = projectBoardFilter === 'all'
     ? allBoardTasks
     : allBoardTasks.filter(task => task.projectId === projectBoardFilter);
+  const visibleBoardTasks = boardTasks.filter(task => projectTaskPriorityFilter === 'all' || task.priority === projectTaskPriorityFilter);
   const boardHTML = `<div class="project-board">
     ${Object.entries(projectStatusLabels).map(([status, label]) => {
-      const columnTasks = boardTasks.filter(task => task.status === status);
+      const columnTasks = sortProjectTasks(visibleBoardTasks.filter(task => task.status === status));
+      const hiddenCompleted = status === 'done' && !projectCompletedOpen;
       return `<section class="project-board-column" data-project-status="${status}">
-        <div class="project-board-column-head"><span>${label}</span><strong>${columnTasks.length}</strong></div>
+        <div class="project-board-column-head"><span>${label}</span><strong>${columnTasks.length}${status === 'done' ? ` <button class="project-completed-toggle" onclick="toggleProjectCompletedTasks()">${projectCompletedOpen ? 'Hide' : 'Show'}</button>` : ''}</strong></div>
+        ${projectBoardFilter !== 'all' ? `<div class="project-board-quick-add"><input id="board-task-in-${status}" class="input" placeholder="Add to ${label.toLowerCase()}..." maxlength="100" onkeydown="if(event.key==='Enter')doAddBoardProjectTask(${eventArg(projectBoardFilter)},'${status}')"><select id="board-task-pri-${status}" class="input" aria-label="New task priority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select><button class="btn btn-ghost" onclick="doAddBoardProjectTask(${eventArg(projectBoardFilter)},'${status}')">Add</button></div>` : ''}
         <div class="project-board-items">
-          ${columnTasks.length === 0 ? `<div class="project-board-empty">${iconSvg('clipboard')}<br>No tasks</div>` : columnTasks.map(task => {
+          ${hiddenCompleted ? `<div class="project-board-empty">Completed tasks hidden</div>` : columnTasks.length === 0 ? `<div class="project-board-empty">${iconSvg('clipboard')}<br>No tasks</div>` : columnTasks.map(task => {
             const subs = task.decryptedSubtasks || [];
             const doneSubs = subs.filter(s => s.done).length;
             const totalSubs = subs.length;
@@ -2663,17 +2892,17 @@ async function vProjects() {
                 <span class="project-board-subtasks-count">${doneSubs}/${totalSubs} subtasks</span>
                 <div class="project-board-subtasks-list">
                   ${subs.map(sub => `<label class="project-board-subtask-row${sub.done ? ' done' : ''}">
-                    <div class="task-cb${sub.done ? ' checked' : ''}" style="width:14px;height:14px;font-size:8px;border-radius:3px;flex-shrink:0;" onclick="doToggleProjectSubtask(${eventArg(task.projectId)},${eventArg(task.id)},${eventArg(sub.id)})">${sub.done ? '&#10003;' : ''}</div>
+                    <div class="task-cb${sub.done ? ' checked' : ''}" style="width:14px;height:14px;font-size:8px;border-radius:3px;flex-shrink:0;" onclick="event.stopPropagation();doToggleProjectSubtask(${eventArg(task.projectId)},${eventArg(task.id)},${eventArg(sub.id)})">${sub.done ? '&#10003;' : ''}</div>
                     <span>${escH(sub.decryptedTitle)}</span>
                   </label>`).join('')}
                 </div>
               </div>` : '';
-            return `<article class="project-board-task">
+            return `<article class="project-board-task" tabindex="0" role="button" onclick="openTaskDetail('project',${eventArg(task.id)},${eventArg(task.projectId)})" onkeydown="if(event.key==='Enter'||event.key===' ')openTaskDetail('project',${eventArg(task.id)},${eventArg(task.projectId)})">
             <div class="project-board-task-project">${escH(task.projectTitle)}</div>
             <div class="project-board-task-title">${escH(task.decryptedTitle || '')}</div>
             <div class="project-board-task-meta">
               <span class="task-priority priority-${escH(task.priority || 'medium')}">${escH(task.priority || 'medium')}</span>
-              <select class="project-status-select" onchange="doSetProjectTaskStatus(${eventArg(task.projectId)},${eventArg(task.id)},this.value)" aria-label="Change task status">
+              <select class="project-status-select" onclick="event.stopPropagation()" onchange="doSetProjectTaskStatus(${eventArg(task.projectId)},${eventArg(task.id)},this.value)" aria-label="Change task status">
                 ${Object.entries(projectStatusLabels).map(([value, text]) => `<option value="${value}"${value === status ? ' selected' : ''}>${text}</option>`).join('')}
               </select>
             </div>
@@ -2696,6 +2925,7 @@ async function vProjects() {
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;align-items:center;">
         <input id="proj-title" class="input" type="text" placeholder="Project name" maxlength="120" onkeydown="if(event.key==='Enter')doAddProject()">
         <input id="proj-desc" class="input" type="text" placeholder="Short description (optional)" maxlength="200" onkeydown="if(event.key==='Enter')doAddProject()">
+        <input id="proj-deadline" class="input" type="date" aria-label="Optional project deadline">
         <button class="btn btn-primary" style="height:38px;" onclick="doAddProject()">+ Add Project</button>
       </div>
     </div>
@@ -2703,10 +2933,12 @@ async function vProjects() {
     <div class="project-toolbar">
       <div>
         <div class="sec-label" style="margin-bottom:3px;">Project workspace</div>
-        <div class="project-toolbar-sub">Move personal work from backlog to done.</div>
+        <div class="project-toolbar-sub">Move project work from backlog to done.</div>
       </div>
       <div class="project-toolbar-controls">
         ${projectViewMode === 'board' ? `<label class="project-board-filter">Filter <select class="project-filter-select" onchange="setProjectBoardFilter(this.value)" aria-label="Filter board by project"><option value="all"${projectBoardFilter === 'all' ? ' selected' : ''}>All Projects</option>${projects.map(project => `<option value="${escH(project.id)}"${project.id === projectBoardFilter ? ' selected' : ''}>${escH(project.decryptedTitle)}</option>`).join('')}</select></label>` : ''}
+        <label class="project-board-filter">Priority <select class="project-filter-select" onchange="setProjectTaskPriorityFilter(this.value)"><option value="all"${projectTaskPriorityFilter === 'all' ? ' selected' : ''}>All priorities</option><option value="high"${projectTaskPriorityFilter === 'high' ? ' selected' : ''}>High</option><option value="medium"${projectTaskPriorityFilter === 'medium' ? ' selected' : ''}>Medium</option><option value="low"${projectTaskPriorityFilter === 'low' ? ' selected' : ''}>Low</option></select></label>
+        <label class="project-board-filter">Sort <select class="project-filter-select" onchange="setProjectTaskSortMode(this.value)"><option value="manual"${projectTaskSortMode === 'manual' ? ' selected' : ''}>My order</option><option value="priority"${projectTaskSortMode === 'priority' ? ' selected' : ''}>Priority</option><option value="due"${projectTaskSortMode === 'due' ? ' selected' : ''}>Due date</option><option value="created"${projectTaskSortMode === 'created' ? ' selected' : ''}>Created</option></select></label>
         ${projectViewModeButtons()}
       </div>
     </div>
@@ -2719,7 +2951,9 @@ async function vProjects() {
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:16px;align-items:start;">
         ${await Promise.all(projects.map(async project => {
           const progress = project.total > 0 ? Math.round((project.completed / project.total) * 100) : 0;
-          const taskItems = project.tasks.length > 0 ? (await Promise.all(project.tasks.map(task => projectTaskHTML(project.id, task)))).join('') : '';
+          const health = projectHealth(project);
+          const visibleProjectTasks = sortProjectTasks(project.tasks.filter(task => projectTaskPriorityFilter === 'all' || task.priority === projectTaskPriorityFilter));
+          const taskItems = visibleProjectTasks.length > 0 ? (await Promise.all(visibleProjectTasks.filter(task => projectCompletedOpen || !task.done).map(task => projectTaskHTML(project.id, task)))).join('') : '';
           return `
             <div class="card" style="display:flex;flex-direction:column;gap:12px;">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
@@ -2727,6 +2961,7 @@ async function vProjects() {
                   <div class="sec-label" style="margin-bottom:6px;">Current Project</div>
                   <h3 style="font-size:18px;font-weight:800;line-height:1.2;">${escH(project.decryptedTitle)}</h3>
                   ${project.decryptedDescription ? `<div style="margin-top:6px;font-size:13px;color:var(--text-secondary);line-height:1.5;">${escH(project.decryptedDescription)}</div>` : ''}
+                  <div class="project-health-row"><span class="project-health project-health-${health.tone}">${health.label}</span><label>Deadline <input type="date" class="project-deadline-input" value="${escH(project.deadline || '')}" onchange="doUpdateProjectDeadline(${eventArg(project.id)},this.value)" aria-label="Project deadline"></label></div>
                 </div>
                 <button class="task-del" onclick="doCompleteProject(${eventArg(project.id)})" title="Mark project complete">✓</button>
               </div>
@@ -2736,6 +2971,7 @@ async function vProjects() {
               </div>
               <div style="display:flex;flex-direction:column;gap:8px;">
                 <div class="sec-label" style="margin-bottom:0;">Project Tasks</div>
+                ${project.tasks.some(task => task.done) ? `<button class="btn btn-ghost project-list-completed-toggle" onclick="toggleProjectCompletedTasks()">${projectCompletedOpen ? 'Hide completed' : 'Show completed'} (${project.tasks.filter(task => task.done).length})</button>` : ''}
                 <div class="add-task-row" style="margin-bottom:2px;">
                   <input id="proj-task-in-${escH(project.id)}" class="input" style="flex:1;" placeholder="Add a project task" maxlength="100" onkeydown="if(event.key==='Enter')doAddProjectTask(${eventArg(project.id)})">
                   <select id="proj-task-pri-${escH(project.id)}" class="input" style="width:auto;">
@@ -2756,12 +2992,14 @@ async function vProjects() {
         })).then(cards => cards.join(''))}
       </div>
     `}
+    ${await taskDetailPanel()}
   </div>`;
 }
 
 async function doAddProject() {
   const titleIn = $('proj-title');
   const descIn = $('proj-desc');
+  const deadlineIn = $('proj-deadline');
   const title = titleIn?.value?.trim();
   if (!title) return;
 
@@ -2769,12 +3007,14 @@ async function doAddProject() {
     id: uid(),
     title,
     description: descIn?.value?.trim() || '',
+    deadline: deadlineIn?.value || '',
     status: 'active',
     tasks: []
   });
 
   if (titleIn) titleIn.value = '';
   if (descIn) descIn.value = '';
+  if (deadlineIn) deadlineIn.value = '';
   refreshView();
 }
 
@@ -2855,21 +3095,22 @@ async function projectTaskHTML(projectId, task) {
   var subItems = await Promise.all(subtasks.map(async function(subtask){
     const decSubTitle = await Auth.decryptField(subtask.title, "[Locked Subtask]");
     return '<div class="subtask-item ' + (subtask.done ? 'done' : '') + '" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="proj-sti-' + escH(subtask.id) + '" draggable="true" data-type="project-subtask" data-project-id="' + escH(projectId) + '" data-parent-id="' + escH(task.id) + '" data-subtask-id="' + escH(subtask.id) + '">'
-      + '<div class="task-cb ' + (subtask.done ? 'checked' : '') + '" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',' + eventArg(subtask.id) + ')">' + (subtask.done ? '&#10003;' : '') + '</div>'
+      + '<div class="task-cb ' + (subtask.done ? 'checked' : '') + '" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="event.stopPropagation();doToggleProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',' + eventArg(subtask.id) + ')">' + (subtask.done ? '&#10003;' : '') + '</div>'
       + '<span class="task-title-txt" style="' + (subtask.done ? 'text-decoration:line-through;color:var(--text-muted);' : '') + ';flex:1;">' + escH(decSubTitle) + '</span>'
-      + '<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',' + eventArg(subtask.id) + ')">&#10005;</button>'
+      + '<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="event.stopPropagation();doDelProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',' + eventArg(subtask.id) + ')">&#10005;</button>'
       + '</div>';
   }));
   var subtasksHTML = totalSubs > 0
     ? '<div class="subtasks-list" data-project-id="' + escH(projectId) + '" data-parent-id="' + escH(task.id) + '" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">' + subItems.join('') + '</div>'
     : '';
   var addForm = '<div class="add-subtask-form-container ' + (isFormOpen ? '' : 'hidden') + '" id="proj-asf-' + escH(projectId) + '-' + escH(task.id) + '" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="proj-subin-' + escH(projectId) + '-' + escH(task.id) + '" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddProjectSubtask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleProjectSubForm(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">Cancel</button></div></div>';
-  var inner = '<div class="task-item' + (task.done ? ' done' : '') + '" id="proj-ti-' + escH(projectId) + '-' + escH(task.id) + '">'
-    + '<div class="task-cb' + (task.done ? ' checked' : '') + '" onclick="doToggleProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">' + (task.done ? '&#10003;' : '') + '</div>'
+  var inner = '<div class="task-item' + (task.done ? ' done' : '') + '" id="proj-ti-' + escH(projectId) + '-' + escH(task.id) + '" tabindex="0" role="button" onclick="openTaskDetail(\'project\',' + eventArg(task.id) + ',' + eventArg(projectId) + ')" onkeydown="if(event.key===\'Enter\'||event.key===\' \')openTaskDetail(\'project\',' + eventArg(task.id) + ',' + eventArg(projectId) + ')">'
+    + '<div class="task-cb' + (task.done ? ' checked' : '') + '" onclick="event.stopPropagation();doToggleProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">' + (task.done ? '&#10003;' : '') + '</div>'
     + '<div class="task-dot dot-' + (task.priority || 'medium') + '"></div>'
     + '<span class="task-title-txt" style="flex:1;">' + escH(decryptedTitle) + fractionText + '</span>'
-    + '<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleProjectSubForm(' + eventArg(projectId) + ',' + eventArg(task.id) + ')" title="Add subtask">+</button>'
-    + '<button class="task-del" onclick="doDelProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">&#10005;</button>'
+    + '<span class="project-order-controls"><button type="button" onclick="event.stopPropagation();moveProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',-1)" aria-label="Move project task up">↑</button><button type="button" onclick="event.stopPropagation();moveProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ',1)" aria-label="Move project task down">↓</button></span>'
+    + '<button class="add-subtask-btn" style="margin-right:4px;" onclick="event.stopPropagation();toggleProjectSubForm(' + eventArg(projectId) + ',' + eventArg(task.id) + ')" title="Add subtask">+</button>'
+    + '<button class="task-del" onclick="event.stopPropagation();doDelProjectTask(' + eventArg(projectId) + ',' + eventArg(task.id) + ')">&#10005;</button>'
     + '</div>';
   return '<div class="task-container" id="proj-tc-' + escH(projectId) + '-' + escH(task.id) + '" draggable="true" data-type="project-task" data-project-id="' + escH(projectId) + '" data-task-id="' + escH(task.id) + '">' + inner + subtasksHTML + addForm + '</div>';
 }
@@ -2917,22 +3158,22 @@ async function taskHTML(t){
   var subItems=await Promise.all(subtasks.map(async function(s){
     const decSubTitle = await Auth.decryptField(s.title, "[Locked Subtask]");
     return '<div class="subtask-item '+(s.done?'done':'')+'" style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12.5px;transition:var(--t);" id="sti-'+escH(s.id)+'" draggable="true" data-type="subtask" data-subtask-id="'+escH(s.id)+'" data-parent-id="'+escH(t.id)+'">'
-      +'<div class="task-cb '+(s.done?'checked':'')+'" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="doToggleSubtask('+eventArg(t.id)+','+eventArg(s.id)+')">'+( s.done?'&#10003;':'')+'</div>'
+      +'<div class="task-cb '+(s.done?'checked':'')+'" style="width:16px;height:16px;font-size:9px;border-radius:3px;flex-shrink:0;" onclick="event.stopPropagation();doToggleSubtask('+eventArg(t.id)+','+eventArg(s.id)+')">'+( s.done?'&#10003;':'')+'</div>'
       +'<span class="task-title-txt" style="'+(s.done?'text-decoration:line-through;color:var(--text-muted);':'')+';flex:1;">'+escH(decSubTitle)+'</span>'
-      +'<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="doDelSubtask('+eventArg(t.id)+','+eventArg(s.id)+')">&#10005;</button>'
+      +'<button class="task-del" style="font-size:11px;padding:1px 3px;background:none;border:none;color:var(--text-muted);cursor:pointer;transition:var(--t);" onmouseover="this.style.color=\'var(--danger)\'" onmouseout="this.style.color=\'var(--text-muted)\'" onclick="event.stopPropagation();doDelSubtask('+eventArg(t.id)+','+eventArg(s.id)+')">&#10005;</button>'
       +'</div>';
   }));
   var subtasksHTML=totalSubs>0
     ?'<div class="subtasks-list" data-parent-id="'+escH(t.id)+'" style="margin-left:36px;padding-left:10px;border-left:1px dashed var(--border-default);display:flex;flex-direction:column;gap:5px;margin-top:5px;margin-bottom:8px;">'+subItems.join('')+'</div>'
     :'';
   var addForm='<div class="add-subtask-form-container '+(isFormOpen?'':'hidden')+'" id="asf-'+escH(t.id)+'" style="margin-left:36px;margin-top:5px;margin-bottom:8px;"><div style="display:flex;gap:6px;"><input type="text" id="subin-'+escH(t.id)+'" class="input" style="padding:6px 10px;font-size:12.5px;flex:1;" placeholder="Add subtask..." onkeydown="if(event.key===\'Enter\')doAddSubtask('+eventArg(t.id)+')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="doAddSubtask('+eventArg(t.id)+')">Add</button><button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="toggleAddSubForm('+eventArg(t.id)+')">Cancel</button></div></div>';
-  var inner='<div class="task-item'+(t.done?' done':'')+'" id="ti-'+escH(t.id)+'">'
-    +'<div class="task-cb'+(t.done?' checked':'')+'" onclick="doToggleTask('+eventArg(t.id)+')">'+( t.done?'&#10003;':'')+'</div>'
+  var inner='<div class="task-item'+(t.done?' done':'')+'" id="ti-'+escH(t.id)+'" tabindex="0" role="button" onclick="openTaskDetail(\'personal\','+eventArg(t.id)+')" onkeydown="if(event.key===\'Enter\'||event.key===\' \')openTaskDetail(\'personal\','+eventArg(t.id)+')">'
+    +'<div class="task-cb'+(t.done?' checked':'')+'" onclick="event.stopPropagation();doToggleTask('+eventArg(t.id)+')">'+( t.done?'&#10003;':'')+'</div>'
     +'<div class="task-dot dot-'+(t.priority||'medium')+'"></div>'
     +'<span class="task-title-txt" style="flex:1;">'+escH(decryptedTitle)+fractionText+'</span>'
-    +'<button class="add-subtask-btn" style="margin-right:4px;" onclick="toggleAddSubForm('+eventArg(t.id)+')" title="Add subtask">+</button>'
-    +'<button class="task-move" style="margin-right:4px;" onclick="doMoveTaskToNextDay('+eventArg(t.id)+')" title="Move to next day">Tomorrow</button>'
-    +'<button class="task-del" onclick="doDelTask('+eventArg(t.id)+')">&#10005;</button>'
+    +'<button class="add-subtask-btn" style="margin-right:4px;" onclick="event.stopPropagation();toggleAddSubForm('+eventArg(t.id)+')" title="Add subtask">+</button>'
+    +'<button class="task-move" style="margin-right:4px;" onclick="event.stopPropagation();doMoveTaskToNextDay('+eventArg(t.id)+')" title="Move to next day">Tomorrow</button>'
+    +'<button class="task-del" onclick="event.stopPropagation();doDelTask('+eventArg(t.id)+')">&#10005;</button>'
     +'</div>';
   return '<div class="task-container" id="tc-'+escH(t.id)+'" draggable="true" data-type="task" data-task-id="'+escH(t.id)+'">'+inner+subtasksHTML+addForm+'</div>';
 }
@@ -3702,7 +3943,6 @@ async function vIdeas() {
         <p class="page-sub">Brainstorm, refine, and archive your projects and thoughts.</p>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        ${projectViewModeButtons()}
         <button class="lock-page-btn" onclick="lockAndNavigate('projects')" title="Lock Ideas">
           ${iconSvg('lock')}
           Lock
@@ -4600,6 +4840,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (event.key === 'Escape') {
       const dialog = document.querySelector('.backup-preview');
       if (dialog) { dialog.remove(); $('settings-import-input')?.focus(); }
+      if (openTaskDetailState) { closeTaskDetail(); return; }
       closeHelp();
     }
   });

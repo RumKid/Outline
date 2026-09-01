@@ -103,7 +103,8 @@ function loadApp(storage = createStorage()) {
   };
   vm.createContext(context);
   vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState, cdToggle, doToggleTimer };`, context);
-  return { ...context.__outline, storage, content };
+  vm.runInContext("this.__outline.vTasks = vTasks; this.__outline.openTaskDetail = openTaskDetail; this.__outline.closeTaskDetail = closeTaskDetail; this.__outline.saveTaskDetail = saveTaskDetail; this.__outline.taskDetailPanel = taskDetailPanel; this.__outline.setProjectViewMode = setProjectViewMode;", context);
+  return { ...context.__outline, storage, content, elements };
 }
 
 test('local date helpers use the local calendar date', () => {
@@ -204,8 +205,83 @@ test('tasks persist and reload with their date and subtasks', async () => {
   const tasks = secondApp.S.tasks();
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].title, 'Ship Outline');
-  assert.equal(tasks[0].date, firstApp.today());
+  assert.equal(tasks[0].date, '2026-08-26');
   assert.equal(tasks[0].subtasks[0].title, 'Check persistence');
+});
+
+test('personal and project task models remain separate with optional detail metadata', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addTask({ id: 'personal-detail', title: 'Personal detail', priority: 'medium', done: false, date: '2026-08-31' });
+  await app.S.updateTask('personal-detail', { notes: 'Private note', dueTime: '09:30', estimateMinutes: 25 });
+  await app.S.addProject({ id: 'project-detail', title: 'Project detail', description: '', status: 'active', tasks: [] });
+  await app.S.addProjectTask('project-detail', 'Project detail task', 'high');
+  const projectTaskId = app.S.projects()[0].tasks[0].id;
+  await app.S.updateProjectTask('project-detail', projectTaskId, { notes: 'Project note', dueDate: '2026-09-01', dueTime: '14:00', estimateMinutes: 45 });
+  const personal = app.S.tasks()[0];
+  const project = app.S.projects()[0];
+  assert.equal(personal.notes, 'Private note');
+  assert.equal(personal.dueTime, '09:30');
+  assert.equal(project.tasks[0].notes, 'Project note');
+  assert.equal(project.tasks[0].dueDate, '2026-09-01');
+  assert.equal(personal.projectId, undefined);
+  assert.equal(project.tasks[0].date, undefined);
+});
+
+test('task detail panels expose separate personal and project context', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addTask({ id: 'detail-task', title: 'Open me', priority: 'high', done: false, date: '2026-08-31', notes: 'A note', subtasks: [] });
+  app.openTaskDetail('personal', 'detail-task');
+  await app.renderView('tasks');
+  assert.match(app.content.innerHTML, /Task details/);
+  assert.match(app.content.innerHTML, /Personal task/);
+  assert.match(app.content.innerHTML, /A note/);
+  await app.S.addProject({ id: 'detail-project', title: 'Project', description: '', status: 'active', tasks: [] });
+  await app.S.addProjectTask('detail-project', 'Project task', 'medium');
+  const projectTaskId = app.S.projects()[0].tasks[0].id;
+  app.openTaskDetail('project', projectTaskId, 'detail-project');
+  await app.renderView('projects');
+  assert.match(app.content.innerHTML, /Project task/);
+});
+
+test('task detail edits flush to file-backed storage', async () => {
+  const app = loadApp();
+  const directory = createDirectory();
+  app.DM.dirHandle = directory;
+  app.DM.fallback = true;
+  await app.S.addTask({ id: 'safe-detail', title: 'Before', priority: 'medium', done: false, date: '2026-08-31', subtasks: [] });
+  app.DM.fallback = false;
+  app.openTaskDetail('personal', 'safe-detail');
+  app.elements.set('detail-title-personal-safe-detail', { value: 'After' });
+  app.elements.set('detail-notes-personal-safe-detail', { value: 'Saved safely' });
+  app.elements.set('detail-priority-personal-safe-detail', { value: 'high' });
+  app.elements.set('detail-time-personal-safe-detail', { value: '' });
+  app.elements.set('detail-estimate-personal-safe-detail', { value: '30' });
+  app.elements.set('detail-date-personal-safe-detail', { value: '2026-08-31' });
+  await app.saveTaskDetail('personal', 'safe-detail');
+  const saved = JSON.parse(directory.files.get('outline-data.json')).tasks[0];
+  assert.equal(saved.title, 'After');
+  assert.equal(saved.notes, 'Saved safely');
+  assert.equal(saved.estimateMinutes, '30');
+});
+
+test('tasks render today, overdue, upcoming, and collapsed completed sections', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addTask({ id: 'today-task', title: 'Today task', priority: 'high', done: false, date: '2026-08-31', subtasks: [] });
+  await app.S.addTask({ id: 'overdue-task', title: 'Overdue task', priority: 'medium', done: false, date: '2026-08-30', subtasks: [] });
+  await app.S.addTask({ id: 'upcoming-task', title: 'Upcoming task', priority: 'low', done: false, date: '2026-09-01', subtasks: [] });
+  await app.S.addTask({ id: 'completed-task', title: 'Completed task', priority: 'low', done: true, date: '2026-08-31', subtasks: [] });
+  await app.renderView('tasks');
+  assert.match(app.content.innerHTML, /Today/);
+  assert.match(app.content.innerHTML, /Overdue/);
+  assert.match(app.content.innerHTML, /Upcoming/);
+  assert.match(app.content.innerHTML, /Completed/);
+  assert.match(app.content.innerHTML, /Today task/);
+  assert.match(app.content.innerHTML, /Overdue task/);
+  assert.match(app.content.innerHTML, /Upcoming task/);
+  assert.doesNotMatch(app.content.innerHTML, /Completed task/);
 });
 
 test('project tasks support a personal board workflow', async () => {
@@ -225,6 +301,68 @@ test('project tasks support a personal board workflow', async () => {
   project = app.S.projects()[0];
   assert.equal(project.tasks[0].status, 'done');
   assert.equal(project.tasks[0].done, true);
+});
+
+test('recurring personal tasks generate one next occurrence without changing task context', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  const date = app.today();
+  await app.S.addTask({ id: 'daily-task', title: 'Daily task', priority: 'medium', done: false, date, recurrence: { type: 'daily', days: [] }, subtasks: [{ id: 'daily-subtask', title: 'Step', done: false }] });
+  app.S.toggleTask('daily-task');
+  let tasks = app.S.tasks();
+  assert.equal(tasks.length, 2);
+  assert.equal(tasks.find(task => task.id === 'daily-task').done, true);
+  const next = tasks.find(task => !task.done);
+  assert.equal(next.date, app.addDays(date, 1));
+  assert.equal(next.seriesId, 'daily-task');
+  assert.equal(next.subtasks[0].done, false);
+  app.S.toggleTask('daily-task');
+  assert.equal(app.S.tasks().length, 2, 'reopening a completed occurrence must not duplicate the next occurrence');
+});
+
+test('recurrence handles weekdays, weekly, custom days, and overdue completion', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  const today = app.today();
+  const weekday = new Date(today + 'T12:00:00').getDay();
+  await app.S.addTask({ id: 'weekday-task', title: 'Weekday', priority: 'low', done: false, date: today, recurrence: { type: 'weekdays', days: [] } });
+  app.S.toggleTask('weekday-task');
+  const weekdayNext = app.S.tasks().find(task => task.seriesId === 'weekday-task');
+  assert.ok(weekdayNext.date > today);
+  assert.ok(![0, 6].includes(new Date(weekdayNext.date + 'T12:00:00').getDay()));
+
+  const customDay = (weekday + 2) % 7;
+  await app.S.addTask({ id: 'custom-task', title: 'Custom', priority: 'low', done: false, date: today, recurrence: { type: 'custom', days: [customDay] } });
+  app.S.toggleTask('custom-task');
+  const customNext = app.S.tasks().find(task => task.seriesId === 'custom-task');
+  assert.equal(new Date(customNext.date + 'T12:00:00').getDay(), customDay);
+
+  const overdueDate = app.addDays(today, -3);
+  await app.S.addTask({ id: 'overdue-recurring', title: 'Overdue recurring', priority: 'low', done: false, date: overdueDate, recurrence: { type: 'daily', days: [] } });
+  app.S.toggleTask('overdue-recurring');
+  const overdueNext = app.S.tasks().find(task => task.seriesId === 'overdue-recurring');
+  assert.equal(overdueNext.date, app.addDays(today, 1));
+});
+
+test('project task UX preserves statuses and renders filters, list controls, deadlines, and health', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addProject({ id: 'health-project', title: 'Health project', description: '', deadline: app.addDays(app.today(), 2), status: 'active', tasks: [] });
+  await app.S.addProjectTask('health-project', 'Project task', 'high', 'backlog');
+  const taskId = app.S.projects()[0].tasks[0].id;
+  await app.S.updateProjectTask('health-project', taskId, { notes: 'Project notes', dueDate: app.today(), estimateMinutes: 20 });
+  app.S.setProjectTaskStatus('health-project', taskId, 'in-progress');
+  assert.equal(app.S.projects()[0].tasks[0].status, 'in-progress');
+  app.setProjectViewMode('list');
+  await app.renderView('projects');
+  assert.match(app.content.innerHTML, /Health project/);
+  assert.match(app.content.innerHTML, /On track|At risk|Overdue/);
+  assert.match(app.content.innerHTML, /Priority/);
+  assert.match(app.content.innerHTML, /Sort/);
+  assert.match(app.content.innerHTML, /List/);
+  app.openTaskDetail('project', taskId, 'health-project');
+  await app.renderView('projects');
+  assert.match(app.content.innerHTML, /Project notes/);
 });
 
 test('wealth income, expense, transfer, deletion, and budget calculations stay balanced', async () => {
@@ -259,6 +397,7 @@ test('password setup and unlock encrypt existing project subtasks', async () => 
     tasks: [{
       id: 'project-task-1',
       title: 'Private task',
+      notes: 'Private task note',
       done: false,
       subtasks: [{ id: 'project-subtask-1', title: 'Private subtask', done: false }]
     }]
@@ -269,6 +408,7 @@ test('password setup and unlock encrypt existing project subtasks', async () => 
   stored = stored.pvp_projects;
   assert.equal(stored[0].tasks[0].subtasks[0].title._enc, true);
   assert.equal(await app.Auth.decrypt(stored[0].tasks[0].subtasks[0].title), 'Private subtask');
+  assert.equal(await app.Auth.decrypt(stored[0].tasks[0].notes), 'Private task note');
 
   app.Auth.lock();
   app.storage.removeItem('pvp_private_vault');
