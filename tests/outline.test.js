@@ -103,7 +103,7 @@ function loadApp(storage = createStorage()) {
   };
   vm.createContext(context);
   vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState, cdToggle, doToggleTimer, fmtDisplayDate };`, context);
-  vm.runInContext("this.__outline.vTasks = vTasks; this.__outline.vProjects = vProjects; this.__outline.openTaskDetail = openTaskDetail; this.__outline.closeTaskDetail = closeTaskDetail; this.__outline.saveTaskDetail = saveTaskDetail; this.__outline.taskDetailPanel = taskDetailPanel; this.__outline.setProjectViewMode = setProjectViewMode; this.__outline.setTaskDateFilter = setTaskDateFilter; this.__outline.setTaskCompletionFilter = setTaskCompletionFilter; this.__outline.setProjectStatusFilter = setProjectStatusFilter; this.__outline.setProjectCompletionFilter = setProjectCompletionFilter; this.__outline.buildSearchResults = buildSearchResults; this.__outline.paletteCommands = paletteCommands;", context);
+  vm.runInContext("this.__outline.vTasks = vTasks; this.__outline.vProjects = vProjects; this.__outline.openTaskDetail = openTaskDetail; this.__outline.closeTaskDetail = closeTaskDetail; this.__outline.saveTaskDetail = saveTaskDetail; this.__outline.taskDetailPanel = taskDetailPanel; this.__outline.setProjectViewMode = setProjectViewMode; this.__outline.setTaskDateFilter = setTaskDateFilter; this.__outline.setTaskCompletionFilter = setTaskCompletionFilter; this.__outline.setProjectStatusFilter = setProjectStatusFilter; this.__outline.setProjectCompletionFilter = setProjectCompletionFilter; this.__outline.buildSearchResults = buildSearchResults; this.__outline.paletteCommands = paletteCommands; this.__outline.lockJournal = lockJournal;", context);
   return { ...context.__outline, storage, content, elements };
 }
 
@@ -596,6 +596,14 @@ test('locked app renders a lock screen for protected views', async () => {
   app.storage.setItem('pvp_enc_verify', JSON.stringify({ _enc: true }));
   await app.renderView('wealth');
   assert.match(app.content.innerHTML, /Outline is Locked/);
+});
+
+test('Journal Lock In opens protection setup when unencrypted', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.lockJournal();
+  assert.match(app.content.innerHTML, /Protect Daily Journal/);
+  assert.match(app.content.innerHTML, /Set Password &amp; Unlock/);
 });
 
 test('legacy data migrates to the current schema and future schemas are protected', async () => {

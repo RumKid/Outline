@@ -3767,6 +3767,37 @@ function doLogSleep(){
 let journalSelectedDate = today();
 let journalDebounceTimer = null;
 
+async function lockJournal() {
+  await flushJournalEditorDraft();
+  // With no password yet, Auth.lock() is intentionally a no-op. Show the
+  // existing protection screen so Journal's Lock In action can establish one.
+  if (!Auth.hasPassword()) {
+    curView = 'journal';
+    const content = $('content');
+    if (content) content.innerHTML = vLockScreen('journal');
+    setTimeout(() => $('lock-pw1')?.focus(), 80);
+    return;
+  }
+
+  // Flush the Journal file before clearing the decrypted cache.
+  await DM.flushJournal();
+  Auth.lock();
+  S._cache['pvp_journal_dec'] = undefined;
+  curView = 'journal';
+  await renderView('journal');
+}
+
+async function flushJournalEditorDraft() {
+  clearTimeout(journalDebounceTimer);
+  journalDebounceTimer = null;
+  const text = $('journal-text-area')?.value;
+  if (text === undefined) return;
+  const map = await S.journalMapAsync();
+  const entry = map[journalSelectedDate] || { mood: '', energy: '', focus: '', physical: '', text: '' };
+  map[journalSelectedDate] = { ...entry, text };
+  await S.saveJournal(map);
+}
+
 function fmtFullDate(dStr) {
   const d = new Date(dStr + 'T12:00:00');
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
@@ -3878,7 +3909,7 @@ async function vJournal() {
         <h1 class="page-title">Daily Journal</h1>
         <p class="page-sub">Reflect on your day, log your metrics, and capture your thoughts.</p>
       </div>
-      <button class="lock-page-btn" onclick="lockAndNavigate('journal')" title="Lock Journal">
+      <button class="lock-page-btn" onclick="lockJournal()" title="Lock Journal">
         ${iconSvg('lock')}
         Lock
       </button>

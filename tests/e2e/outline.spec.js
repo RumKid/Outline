@@ -101,6 +101,14 @@ test('keeps journal text and selected metrics after reload', async ({ page }) =>
   await expect(page.locator('.j-capsule.active')).toContainText('Great');
 });
 
+test('Journal Lock In protects the journal and preserves pending text', async ({ page }) => {
+  await page.getByRole('button', { name: 'Journal' }).click();
+  await page.locator('#journal-text-area').fill('Text saved before locking.');
+  await page.getByRole('button', { name: 'Lock' }).click();
+  await expect(page.getByText('Protect Daily Journal')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('pvp_journal'))[Object.keys(JSON.parse(localStorage.getItem('pvp_journal')))[0]].text)).toBe('Text saved before locking.');
+});
+
 test('sets and rotates the encryption password through the UI', async ({ page }) => {
   await page.getByRole('button', { name: 'Settings & Data' }).click();
   await page.getByRole('tab', { name: 'Security' }).click();
