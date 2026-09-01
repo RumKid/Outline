@@ -103,7 +103,7 @@ function loadApp(storage = createStorage()) {
   };
   vm.createContext(context);
   vm.runInContext(`${authScript}\n${storageScript}\n${tasksScript}\n${projectsScript}\n${wealthScript}\n${viewsScript}\n${appScript}\nthis.__outline = { S, DM, Auth, DATA_SCHEMA_VERSION, dateKey, today, addDays, thisWeek, escH, eventArg, renderView, vStudy, vProjects, vSettings, setSettingsTab, cdState, cdToggle, doToggleTimer, fmtDisplayDate };`, context);
-  vm.runInContext("this.__outline.vTasks = vTasks; this.__outline.vProjects = vProjects; this.__outline.openTaskDetail = openTaskDetail; this.__outline.closeTaskDetail = closeTaskDetail; this.__outline.saveTaskDetail = saveTaskDetail; this.__outline.taskDetailPanel = taskDetailPanel; this.__outline.setProjectViewMode = setProjectViewMode; this.__outline.setTaskDateFilter = setTaskDateFilter; this.__outline.setTaskCompletionFilter = setTaskCompletionFilter; this.__outline.setProjectStatusFilter = setProjectStatusFilter; this.__outline.setProjectCompletionFilter = setProjectCompletionFilter; this.__outline.buildSearchResults = buildSearchResults; this.__outline.paletteCommands = paletteCommands; this.__outline.lockJournal = lockJournal;", context);
+  vm.runInContext("this.__outline.vTasks = vTasks; this.__outline.vProjects = vProjects; this.__outline.vJournal = vJournal; this.__outline.openTaskDetail = openTaskDetail; this.__outline.closeTaskDetail = closeTaskDetail; this.__outline.saveTaskDetail = saveTaskDetail; this.__outline.taskDetailPanel = taskDetailPanel; this.__outline.setProjectViewMode = setProjectViewMode; this.__outline.setTaskDateFilter = setTaskDateFilter; this.__outline.setTaskCompletionFilter = setTaskCompletionFilter; this.__outline.setProjectStatusFilter = setProjectStatusFilter; this.__outline.setProjectCompletionFilter = setProjectCompletionFilter; this.__outline.setProjectTaskCompletionFilter = setProjectTaskCompletionFilter; this.__outline.doCompleteProject = doCompleteProject; this.__outline.selectJournalOption = selectJournalOption; this.__outline.buildSearchResults = buildSearchResults; this.__outline.paletteCommands = paletteCommands; this.__outline.lockJournal = lockJournal;", context);
   return { ...context.__outline, storage, content, elements };
 }
 
@@ -324,14 +324,119 @@ test('task filters and project completion/status behavior preserve separate cont
   assert.equal(app.S.projects()[0].tasks[0].status, 'in-progress');
 });
 
+test('project completion persists independently from project tasks and supports reopening', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  await app.S.addProject({ id: 'completion-project', title: 'Completion project', description: '', tasks: [
+    { id: 'backlog-task', title: 'Backlog task', done: false, status: 'backlog', subtasks: [] },
+    { id: 'done-task', title: 'Done task', done: true, status: 'done', subtasks: [] }
+  ] });
+
+  app.doCompleteProject('completion-project');
+  let project = app.S.projects()[0];
+  assert.equal(project.completed, true);
+  assert.equal(project.status, 'done');
+  assert.equal(JSON.parse(app.storage.getItem('pvp_projects'))[0].completed, true);
+  assert.deepEqual(project.tasks.map(task => ({ id: task.id, done: task.done, status: task.status })), [
+    { id: 'backlog-task', done: false, status: 'backlog' },
+    { id: 'done-task', done: true, status: 'done' }
+  ]);
+
+  const reloaded = loadApp(app.storage);
+  reloaded.DM.fallback = true;
+  project = reloaded.S.projects()[0];
+  assert.equal(project.completed, true, 'completion survives reload');
+  assert.equal(project.tasks[0].done, false);
+  assert.equal(project.tasks[1].done, true);
+
+  reloaded.doCompleteProject('completion-project');
+  project = reloaded.S.projects()[0];
+  assert.equal(project.completed, false);
+  assert.equal(project.status, 'active');
+  assert.equal(project.tasks[0].done, false);
+  assert.equal(project.tasks[1].done, true);
+});
+
+test('projects without an explicit completion field default to active', () => {
+  const app = loadApp(createStorage({
+    pvp_projects: [{ id: 'legacy-project', title: 'Legacy project', tasks: [{ id: 'legacy-task', done: true }] }]
+  }));
+
+  const project = app.S.projects()[0];
+  assert.equal(project.completed, false);
+  assert.equal(project.status, 'active');
+  assert.equal(project.tasks[0].done, true);
+});
+
 test('project completion filter shows completed projects without merging task stores', async () => {
   const app = loadApp();
   app.DM.fallback = true;
-  await app.S.addProject({ id: 'completed-project', title: 'Finished project', description: '', status: 'done', tasks: [] });
+  await app.S.addProject({ id: 'completed-project', title: 'Finished project', description: '', completed: true, tasks: [] });
   app.setProjectCompletionFilter('completed');
   await app.renderView('projects');
   assert.match(app.content.innerHTML, /Finished project/);
   assert.match(app.content.innerHTML, /value="completed" selected/);
+});
+
+test('project and project-task completion filters remain independent', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  app.setProjectViewMode('list');
+  await app.S.addProject({ id: 'active-project', title: 'Active project', completed: false, tasks: [
+    { id: 'active-task', title: 'Active task', done: false, status: 'backlog', subtasks: [] },
+    { id: 'active-done-task', title: 'Active project done task', done: true, status: 'done', subtasks: [] }
+  ] });
+  await app.S.addProject({ id: 'completed-project', title: 'Completed project', completed: true, tasks: [
+    { id: 'completed-active-task', title: 'Completed project active task', done: false, status: 'backlog', subtasks: [] },
+    { id: 'completed-done-task', title: 'Completed project done task', done: true, status: 'done', subtasks: [] }
+  ] });
+  await app.S.addProject({ id: 'legacy-project', title: 'Legacy project', tasks: [
+    { id: 'legacy-done-task', title: 'Legacy done task', done: true, status: 'done', subtasks: [] }
+  ] });
+
+  const render = async (projectFilter, taskFilter) => {
+    app.setProjectCompletionFilter(projectFilter);
+    app.setProjectTaskCompletionFilter(taskFilter);
+    await app.renderView('projects');
+    return app.content.innerHTML;
+  };
+
+  let html = await render('active', 'active');
+  assert.match(html, /Active project/);
+  assert.match(html, /Legacy project/);
+  assert.doesNotMatch(html, /Completed project/);
+  assert.match(html, /Active task/);
+  assert.doesNotMatch(html, /Active project done task/);
+
+  html = await render('completed', 'active');
+  assert.match(html, /Completed project/);
+  assert.doesNotMatch(html, /Active project/);
+  assert.doesNotMatch(html, /Legacy project/);
+  assert.match(html, /Completed project active task/);
+  assert.doesNotMatch(html, /Completed project done task/);
+
+  html = await render('completed', 'completed');
+  assert.match(html, /Completed project/);
+  assert.match(html, /Completed project done task/);
+  assert.doesNotMatch(html, /Completed project active task/);
+
+  html = await render('all', 'all');
+  assert.match(html, /Active project/);
+  assert.match(html, /Completed project/);
+  assert.match(html, /Legacy project/);
+  assert.match(html, /Active project done task/);
+  assert.match(html, /Completed project active task/);
+
+  html = await render('active', 'completed');
+  assert.match(html, /Active project/);
+  assert.match(html, /Active project done task/);
+  assert.doesNotMatch(html, /Completed project/);
+
+  html = await render('all', 'active');
+  assert.match(html, /Active task/);
+  assert.match(html, /Completed project active task/);
+  assert.doesNotMatch(html, /Active project done task/);
+  assert.doesNotMatch(html, /Completed project done task/);
 });
 
 test('offline search respects task contexts and locked encrypted state', async () => {
@@ -589,6 +694,35 @@ test('journal edits are persisted immediately and survive a reload during a pend
   await reloaded.DM.loadAll();
   await reloaded.DM.flushJournal();
   assert.equal(reloaded.S.journalMap()['2026-08-26'].text, 'Recovered text');
+});
+
+test('Journal options toggle off, support multiple metrics, and survive reload', async () => {
+  const app = loadApp();
+  app.DM.fallback = true;
+  const date = app.today();
+
+  await app.selectJournalOption('mood', 'Good');
+  await app.selectJournalOption('energy', 'High');
+  let entry = app.S.journalMap()[date];
+  assert.equal(entry.mood, 'Good');
+  assert.equal(entry.energy, 'High');
+
+  await app.selectJournalOption('mood', 'Good');
+  entry = app.S.journalMap()[date];
+  assert.equal(entry.mood, '');
+  assert.equal(entry.energy, 'High');
+
+  let html = await app.vJournal();
+  assert.doesNotMatch(html, /j-capsule active[^>]*>[\s\S]*Good/);
+  assert.match(html, /j-capsule active[^>]*>[\s\S]*High/);
+
+  const reloaded = loadApp(app.storage);
+  reloaded.DM.fallback = true;
+  entry = reloaded.S.journalMap()[date];
+  assert.equal(entry.mood, '');
+  assert.equal(entry.energy, 'High');
+  await reloaded.selectJournalOption('energy', 'High');
+  assert.equal(reloaded.S.journalMap()[date].energy, '');
 });
 
 test('locked app renders a lock screen for protected views', async () => {

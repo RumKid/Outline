@@ -1536,6 +1536,7 @@ const S = {
       tasks: [],
       status: 'active',
       ...project,
+      completed: project.completed === true,
       tasks: (Array.isArray(project.tasks) ? project.tasks : []).map(task => ({
         ...task,
         status: task.done ? 'done' : ['backlog', 'todo', 'in-progress'].includes(task.status) ? task.status : 'backlog'
@@ -1549,7 +1550,8 @@ const S = {
     if (projectCopy.description) {
       projectCopy.description = await Auth.encryptField(projectCopy.description);
     }
-    projectCopy.status = projectCopy.status || 'active';
+    projectCopy.status = projectCopy.status || (projectCopy.completed ? 'done' : 'active');
+    projectCopy.completed = typeof projectCopy.completed === 'boolean' ? projectCopy.completed : projectCopy.status === 'done';
     projectCopy.tasks = Array.isArray(projectCopy.tasks) ? projectCopy.tasks : [];
     list.push(projectCopy);
     this.s('pvp_projects', list);
@@ -1560,6 +1562,8 @@ const S = {
     if (idx === -1) return;
     const current = list[idx];
     const next = { ...current, ...updates };
+    if (typeof updates.completed === 'boolean') next.status = updates.completed ? 'done' : 'active';
+    if (updates.status === 'done' || updates.status === 'active') next.completed = updates.status === 'done';
     if (updates.title !== undefined && typeof updates.title === 'string') {
       next.title = await Auth.encryptField(updates.title);
     }
@@ -2835,9 +2839,9 @@ let projectViewMode = 'board';
 let projectBoardFilter = 'all';
 let projectTaskPriorityFilter = 'all';
 let projectTaskSortMode = 'manual';
-let projectCompletedOpen = false;
 let projectStatusFilter = 'all';
 let projectCompletionFilter = 'active';
+let projectTaskCompletionFilter = 'active';
 const projectStatusLabels = { backlog: 'Backlog', todo: 'To Do', 'in-progress': 'In Progress', done: 'Done' };
 function setProjectViewMode(mode) {
   projectViewMode = ['list', 'ideas'].includes(mode) ? mode : 'board';
@@ -2851,7 +2855,7 @@ function setProjectTaskPriorityFilter(value) { projectTaskPriorityFilter = value
 function setProjectTaskSortMode(value) { projectTaskSortMode = value || 'manual'; refreshView(); }
 function setProjectStatusFilter(value) { projectStatusFilter = value || 'all'; refreshView(); }
 function setProjectCompletionFilter(value) { projectCompletionFilter = value || 'active'; refreshView(); }
-function toggleProjectCompletedTasks() { projectCompletedOpen = !projectCompletedOpen; refreshView(); }
+function setProjectTaskCompletionFilter(value) { projectTaskCompletionFilter = value || 'active'; refreshView(); }
 function sortProjectTasks(tasks) {
   const priority = { high: 0, medium: 1, low: 2 };
   return [...tasks].sort((a, b) => {
@@ -2901,9 +2905,13 @@ function setProjectBoardFilter(projectId) {
 function doSetProjectTaskStatus(projectId, taskId, status) { S.setProjectTaskStatus(projectId, taskId, status); refreshView(); }
 async function vProjects() {
   if (projectViewMode === 'ideas') return vIdeas();
+  const projectMatchesCompletion = project => projectCompletionFilter === 'all'
+    || (projectCompletionFilter === 'completed' ? project.completed === true : project.completed !== true);
+  const taskMatchesCompletion = task => projectTaskCompletionFilter === 'all'
+    || (projectTaskCompletionFilter === 'completed' ? task.done === true : task.done !== true);
   const projects = await Promise.all(
     (S.projects() || [])
-      .filter(project => projectCompletionFilter === 'all' || (projectCompletionFilter === 'completed' ? project.status === 'done' : project.status !== 'done'))
+      .filter(projectMatchesCompletion)
       .map(async project => {
         const title = await Auth.decryptField(project.title, '[Locked Project]');
         const description = await Auth.decryptField(project.description, '');
@@ -2942,18 +2950,17 @@ async function vProjects() {
     : allBoardTasks.filter(task => task.projectId === projectBoardFilter);
   const visibleBoardTasks = boardTasks.filter(task =>
     (projectStatusFilter === 'all' || task.status === projectStatusFilter) &&
-    (projectCompletionFilter !== 'completed' || task.done) &&
+    taskMatchesCompletion(task) &&
     (projectTaskPriorityFilter === 'all' || task.priority === projectTaskPriorityFilter)
   );
   const boardHTML = `<div class="project-board">
     ${Object.entries(projectStatusLabels).map(([status, label]) => {
       const columnTasks = sortProjectTasks(visibleBoardTasks.filter(task => task.status === status));
-      const hiddenCompleted = status === 'done' && !projectCompletedOpen && projectCompletionFilter !== 'completed';
       return `<section class="project-board-column" data-project-status="${status}">
-        <div class="project-board-column-head"><span>${label}</span><strong>${columnTasks.length}${status === 'done' ? ` <button class="project-completed-toggle" onclick="toggleProjectCompletedTasks()">${projectCompletedOpen ? 'Hide' : 'Show'}</button>` : ''}</strong></div>
+        <div class="project-board-column-head"><span>${label}</span><strong>${columnTasks.length}</strong></div>
         ${projectBoardFilter !== 'all' ? `<div class="project-board-quick-add"><input id="board-task-in-${status}" class="input" placeholder="Add to ${label.toLowerCase()}..." maxlength="100" onkeydown="if(event.key==='Enter')doAddBoardProjectTask(${eventArg(projectBoardFilter)},'${status}')"><select id="board-task-pri-${status}" class="input" aria-label="New task priority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select><button class="btn btn-ghost" onclick="doAddBoardProjectTask(${eventArg(projectBoardFilter)},'${status}')">Add</button></div>` : ''}
         <div class="project-board-items">
-          ${hiddenCompleted ? `<div class="project-board-empty">Completed tasks hidden</div>` : columnTasks.length === 0 ? `<div class="project-board-empty">${iconSvg('clipboard')}<br>No tasks</div>` : columnTasks.map(task => {
+          ${columnTasks.length === 0 ? `<div class="project-board-empty">${iconSvg('clipboard')}<br>No tasks</div>` : columnTasks.map(task => {
             const subs = task.decryptedSubtasks || [];
             const doneSubs = subs.filter(s => s.done).length;
             const totalSubs = subs.length;
@@ -3012,6 +3019,7 @@ async function vProjects() {
         ${projectViewMode === 'board' ? `<label class="project-board-filter">Filter <select class="project-filter-select" onchange="setProjectBoardFilter(this.value)" aria-label="Filter board by project"><option value="all"${projectBoardFilter === 'all' ? ' selected' : ''}>All Projects</option>${projects.map(project => `<option value="${escH(project.id)}"${project.id === projectBoardFilter ? ' selected' : ''}>${escH(project.decryptedTitle)}</option>`).join('')}</select></label>` : ''}
         <label class="project-board-filter">Status <select class="project-filter-select" onchange="setProjectStatusFilter(this.value)"><option value="all"${projectStatusFilter === 'all' ? ' selected' : ''}>All statuses</option>${Object.entries(projectStatusLabels).map(([value, text]) => `<option value="${value}"${projectStatusFilter === value ? ' selected' : ''}>${text}</option>`).join('')}</select></label>
         <label class="project-board-filter">Projects <select class="project-filter-select" onchange="setProjectCompletionFilter(this.value)" aria-label="Filter projects by completion"><option value="active"${projectCompletionFilter === 'active' ? ' selected' : ''}>Active</option><option value="all"${projectCompletionFilter === 'all' ? ' selected' : ''}>All</option><option value="completed"${projectCompletionFilter === 'completed' ? ' selected' : ''}>Completed</option></select></label>
+        <label class="project-board-filter">Project tasks <select class="project-filter-select" onchange="setProjectTaskCompletionFilter(this.value)" aria-label="Filter project tasks by completion"><option value="active"${projectTaskCompletionFilter === 'active' ? ' selected' : ''}>Active</option><option value="all"${projectTaskCompletionFilter === 'all' ? ' selected' : ''}>All</option><option value="completed"${projectTaskCompletionFilter === 'completed' ? ' selected' : ''}>Completed</option></select></label>
         <label class="project-board-filter">Priority <select class="project-filter-select" onchange="setProjectTaskPriorityFilter(this.value)"><option value="all"${projectTaskPriorityFilter === 'all' ? ' selected' : ''}>All priorities</option><option value="high"${projectTaskPriorityFilter === 'high' ? ' selected' : ''}>High</option><option value="medium"${projectTaskPriorityFilter === 'medium' ? ' selected' : ''}>Medium</option><option value="low"${projectTaskPriorityFilter === 'low' ? ' selected' : ''}>Low</option></select></label>
         <label class="project-board-filter">Sort <select class="project-filter-select" onchange="setProjectTaskSortMode(this.value)"><option value="manual"${projectTaskSortMode === 'manual' ? ' selected' : ''}>My order</option><option value="priority"${projectTaskSortMode === 'priority' ? ' selected' : ''}>Priority</option><option value="due"${projectTaskSortMode === 'due' ? ' selected' : ''}>Due date</option><option value="created"${projectTaskSortMode === 'created' ? ' selected' : ''}>Created</option></select></label>
         ${projectViewModeButtons()}
@@ -3029,10 +3037,10 @@ async function vProjects() {
           const health = projectHealth(project);
           const visibleProjectTasks = sortProjectTasks(project.tasks.filter(task =>
             (projectStatusFilter === 'all' || task.status === projectStatusFilter) &&
-            (projectCompletionFilter !== 'completed' || task.done) &&
+            taskMatchesCompletion(task) &&
             (projectTaskPriorityFilter === 'all' || task.priority === projectTaskPriorityFilter)
           ));
-          const taskItems = visibleProjectTasks.length > 0 ? (await Promise.all(visibleProjectTasks.filter(task => projectCompletedOpen || !task.done || projectCompletionFilter === 'completed').map(task => projectTaskHTML(project.id, task)))).join('') : '';
+          const taskItems = visibleProjectTasks.length > 0 ? (await Promise.all(visibleProjectTasks.map(task => projectTaskHTML(project.id, task)))).join('') : '';
           return `
             <div class="card" style="display:flex;flex-direction:column;gap:12px;">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
@@ -3050,7 +3058,6 @@ async function vProjects() {
               </div>
               <div style="display:flex;flex-direction:column;gap:8px;">
                 <div class="sec-label" style="margin-bottom:0;">Project Tasks</div>
-                ${project.tasks.some(task => task.done) ? `<button class="btn btn-ghost project-list-completed-toggle" onclick="toggleProjectCompletedTasks()">${projectCompletedOpen ? 'Hide completed' : 'Show completed'} (${project.tasks.filter(task => task.done).length})</button>` : ''}
                 <div class="add-task-row" style="margin-bottom:2px;">
                   <input id="proj-task-in-${escH(project.id)}" class="input" style="flex:1;" placeholder="Add a project task" maxlength="100" onkeydown="if(event.key==='Enter')doAddProjectTask(${eventArg(project.id)})">
                   <select id="proj-task-pri-${escH(project.id)}" class="input" style="width:auto;">
@@ -3120,8 +3127,11 @@ function doDelProjectTask(projectId, taskId) {
 }
 
 function doCompleteProject(projectId) {
-  if (confirm('Mark this project as complete and remove it from active projects?')) {
-    S.updateProject(projectId, { status: 'done' });
+  const project = S.projects().find(item => item.id === projectId);
+  if (!project) return;
+  const completing = !project.completed;
+  if (confirm(completing ? 'Mark this project as complete and remove it from active projects?' : 'Reopen this project?')) {
+    S.updateProject(projectId, { completed: completing });
     refreshView();
   }
 }
@@ -3807,10 +3817,10 @@ function selectJournalOption(metric, value) {
   const d = journalSelectedDate;
   const currentText = $('journal-text-area')?.value;
   clearTimeout(journalDebounceTimer);
-  S.journalMapAsync().then(async map => {
+  return S.journalMapAsync().then(async map => {
     if (!map[d]) map[d] = { mood: '', energy: '', focus: '', physical: '', text: '' };
     if (currentText !== undefined) map[d].text = currentText;
-    map[d][metric] = value;
+    map[d][metric] = map[d][metric] === value ? '' : value;
     await S.saveJournal(map);
     if (!Auth.hasPassword()) localStorage.removeItem(DM.journalDraftKey);
     refreshView();
@@ -4212,7 +4222,7 @@ function paletteCommands() {
     ['Show active personal tasks', () => { taskCompletionFilter = 'active'; renderView('tasks'); }],
     ['Show completed personal tasks', () => { taskCompletionFilter = 'completed'; completedTasksOpen = true; renderView('tasks'); }],
     ['Show all project statuses', () => { projectStatusFilter = 'all'; renderView('projects'); }],
-    ['Show completed project tasks', () => { projectCompletionFilter = 'completed'; projectCompletedOpen = true; renderView('projects'); }]
+    ['Show completed project tasks', () => { projectTaskCompletionFilter = 'completed'; renderView('projects'); }]
   ];
   return commands;
 }
